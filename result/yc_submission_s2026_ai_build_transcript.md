@@ -1,17 +1,26 @@
-# YC S2026 - AI Build Transcript (Bookbook)
+# AI-based Book publish solution
 
-This file is an edited/merged transcript focused on how I used AI to **plan, design, debug, and ship** key features.
+Consolidated transcript and source references from the AI-assisted build process for a book publishing workflow.
+
+## Why This Project Started
+
+- Three co-authors needed a practical way to write and revise a full book with AI support.
+- Drafting happened in markdown (good for AI + version control), while review happened in Google Docs (good for human collaboration).
+- That split created copy/paste overhead, version drift, and unclear ownership of edits.
+- The project was started to make author collaboration, AI drafting, and publishing run in one reproducible pipeline.
+
+## Core Idea
+
+- Keep Git markdown as the source of truth for chapters/sections.
+- Use `book publish` to generate date-versioned Google Docs outputs for collaborative review.
+- Use `book pull` to convert review feedback (comments/suggestions) into GitHub issues for agent-friendly execution.
+- Avoid fragile full bi-directional sync of document bodies; keep the loop simple: draft in Git, review in Docs, track execution in issues.
+
+## Source Files
 
 - Primary source (build session): `result/2026-02-05-bookbook-gitnative-copilot-en.txt`
 - Secondary source (tool-level orchestration evidence): `result/codex_transcript_2026-02-05T19-05-49_with_tools.txt`
 - Tertiary source (style-fidelity iteration): `2026-02-06-styletemplate-test.txt`
-- Product/repo context: `modocai/Book_HealthcareAI_for_Consumer` (bookbook)
-
-## Repository Links
-
-- Submission transcript repo: https://github.com/modocai/history_yc_book_project
-- Product code repo (bookbook): https://github.com/modocai/Book_HealthcareAI_for_Consumer
-- Style-fidelity transcript file: https://github.com/modocai/history_yc_book_project/blob/main/2026-02-06-styletemplate-test.txt
 
 ## 1) Planning and Initial Architecture
 
@@ -1010,3 +1019,12 @@ Output:
 - `result/codex_transcript_2026-02-05T19-05-49_with_tools.txt`
 - `result/codex_transcript_2026-02-05T19-05-49_readable.txt`
 - `2026-02-06-styletemplate-test.txt`
+
+## 10) Repository Links
+
+- Repository root: https://github.com/modocai/history_yc_book_project
+- Submission document: https://github.com/modocai/history_yc_book_project/blob/main/result/yc_submission_s2026_ai_build_transcript.md
+- Primary source file: https://github.com/modocai/history_yc_book_project/blob/main/result/2026-02-05-bookbook-gitnative-copilot-en.txt
+- Secondary source file: https://github.com/modocai/history_yc_book_project/blob/main/result/codex_transcript_2026-02-05T19-05-49_with_tools.txt
+- Tertiary source file: https://github.com/modocai/history_yc_book_project/blob/main/2026-02-06-styletemplate-test.txt
+- Product code repo: https://github.com/modocai/Book_HealthcareAI_for_Consumer (private)
