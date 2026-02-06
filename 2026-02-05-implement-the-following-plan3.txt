@@ -1,0 +1,1374 @@
+
+ ▐▛███▜▌   Claude Code v2.1.32
+▝▜█████▛▘  Opus 4.6 · Claude Team
+  ▘▘ ▝▝    ~/projects/bookbook
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ Bookbook 구현 계획                                                           │
+│                                                                              │
+│ 마크다운 기반 책 작성 + Google Docs 양방향 동기화 시스템                     │
+│                                                                              │
+│ GitHub 리포지토리                                                            │
+│                                                                              │
+│ - Remote: https://github.com/modocai/Book_HealthcareAI_for_Consumer.git      │
+│ - 구현 시작 전 git init → remote 추가 → 초기 커밋 → push                     │
+│                                                                              │
+│ 프로젝트 구조                                                                │
+│                                                                              │
+│ bookbook/                                                                    │
+│ ├── pyproject.toml                                                           │
+│ ├── .gitignore                                                               │
+│ ├── AGENTS.md                                                                │
+│ ├── src/                                                                     │
+│ │   └── bookbook/                                                            │
+│ │       ├── __init__.py                                                      │
+│ │       ├── cli.py                    # Typer CLI (init, auth, push, pull,   │
+│ status)                                                                      │
+│ │       ├── config.py                 # book.yaml 로드/검증                  │
+│ │       ├── models.py                 # Pydantic 모델 (BookConfig,           │
+│ SyncState, SectionMeta)                                                      │
+│ │       ├── google/                                                          │
+│ │       │   ├── __init__.py                                                  │
+│ │       │   ├── auth.py               # OAuth2 인증 (google-auth-oauthlib)   │
+│ │       │   ├── docs_client.py        # Google Docs API (create, get,        │
+│ batchUpdate)                                                                 │
+│ │       │   └── drive_client.py       # Google Drive API (이미지 업로드,     │
+│ 메타데이터)                                                                  │
+│ │       ├── converter/                                                       │
+│ │       │   ├── __init__.py                                                  │
+│ │       │   ├── elements.py           # 중간 표현 (Heading, Paragraph,       │
+│ TextRun, Image 등)                                                           │
+│ │       │   ├── md_to_docs.py         # Markdown → Google Docs batchUpdate   │
+│ 요청 변환                                                                    │
+│ │       │   ├── docs_to_md.py         # Google Docs JSON → Markdown 변환     │
+│ │       │   └── image_handler.py      # 이미지 업로드/다운로드/경로 매핑     │
+│ │       ├── sync/                                                            │
+│ │       │   ├── __init__.py                                                  │
+│ │       │   ├── state.py              # .bookbook/sync_state.json 관리       │
+│ │       │   ├── push.py               # 로컬 markdown → Google Docs          │
+│ │       │   ├── pull.py               # Google Docs → 로컬 markdown          │
+│ │       │   └── conflict.py           # 충돌 감지/해결                       │
+│ │       └── book/                                                            │
+│ │           ├── __init__.py                                                  │
+│ │           ├── scanner.py            # chapters/ 디렉토리 스캔, 순서 결정   │
+│ │           └── init.py               # 프로젝트 초기화 스캐폴딩             │
+│ └── tests/                                                                   │
+│     ├── conftest.py                                                          │
+│     ├── test_converter/                                                      │
+│     ├── test_sync/                                                           │
+│     └── fixtures/                                                            │
+│                                                                              │
+│ bookbook init으로 생성되는 책 프로젝트 구조                                  │
+│                                                                              │
+│ my-book/                                                                     │
+│ ├── book.yaml                         # 책 설정 (제목, 저자, Google 연동 등) │
+│ ├── .bookbook/                                                               │
+│ │   ├── sync_state.json               # 동기화 상태 (doc ID, 해시,           │
+│ 타임스탬프)                                                                  │
+│ │   └── credentials.json              # Google OAuth 인증정보 (gitignored)   │
+│ ├── chapters/                                                                │
+│ │   ├── 01-introduction/                                                     │
+│ │   │   ├── 01-overview.md                                                   │
+│ │   │   └── 02-background.md                                                 │
+│ │   └── 02-main-topic/                                                       │
+│ │       ├── 01-theory.md                                                     │
+│ │       └── 02-practice.md                                                   │
+│ ├── images/                                                                  │
+│ └── .gitignore                                                               │
+│                                                                              │
+│ CLI 명령어                                                                   │
+│ 명령어: bookbook init                                                        │
+│ 설명: 새 책 프로젝트 스캐폴딩                                                │
+│ ────────────────────────────────────────                                     │
+│ 명령어: bookbook auth                                                        │
+│ 설명: Google OAuth2 인증                                                     │
+│ ────────────────────────────────────────                                     │
+│ 명령어: bookbook push [--chapter CH] [--force] [--dry-run]                   │
+│ 설명: 마크다운 → Google Docs 동기화                                          │
+│ ────────────────────────────────────────                                     │
+│ 명령어: bookbook pull [--chapter CH] [--force] [--dry-run]                   │
+│ 설명: Google Docs → 마크다운 동기화                                          │
+│ ────────────────────────────────────────                                     │
+│ 명령어: bookbook status                                                      │
+│ 설명: 동기화 상태 표시 (변경, 충돌)                                          │
+│ 핵심 설계 결정                                                               │
+│                                                                              │
+│ 1. Push 전략: 전체 교체 (Full Replacement)                                   │
+│                                                                              │
+│ - 증분 편집은 Google Docs API의 문자 인덱스 관리가 매우 복잡                 │
+│ - 대신: 문서 내용 삭제 → 마크다운을 batchUpdate 요청으로 변환 → 한번에 적용  │
+│ - 2단계 방식: (1) 텍스트 삽입 + 인덱스 추적, (2) 서식 적용                   │
+│                                                                              │
+│ 2. 마크다운 → Google Docs 포맷 매핑                                          │
+│ ┌──────────────┬───────────────────────────────────────────────────────┐     │
+│ │   Markdown   │                      Google Docs                      │     │
+│ ├──────────────┼───────────────────────────────────────────────────────┤     │
+│ │ # Heading    │ updateParagraphStyle → HEADING_1                      │     │
+│ ├──────────────┼───────────────────────────────────────────────────────┤     │
+│ │ **bold**     │ updateTextStyle → bold: true                          │     │
+│ ├──────────────┼───────────────────────────────────────────────────────┤     │
+│ │ *italic*     │ updateTextStyle → italic: true                        │     │
+│ ├──────────────┼───────────────────────────────────────────────────────┤     │
+│ │ `code`       │ updateTextStyle → fontFamily: "Courier New"           │     │
+│ ├──────────────┼───────────────────────────────────────────────────────┤     │
+│ │ [link](url)  │ updateTextStyle → link: {url}                         │     │
+│ ├──────────────┼───────────────────────────────────────────────────────┤     │
+│ │ - item       │ createParagraphBullets → BULLET_DISC_CIRCLE_SQUARE    │     │
+│ ├──────────────┼───────────────────────────────────────────────────────┤     │
+│ │ 1. item      │ createParagraphBullets → NUMBERED_DECIMAL_ALPHA_ROMAN │     │
+│ ├──────────────┼───────────────────────────────────────────────────────┤     │
+│ │ ![alt](path) │ 이미지를 Drive 업로드 후 insertInlineImage            │     │
+│ ├──────────────┼───────────────────────────────────────────────────────┤     │
+│ │ 코드 블록    │ 단일 셀 테이블 + 모노스페이스 폰트 (감지 용이)        │     │
+│ └──────────────┴───────────────────────────────────────────────────────┘     │
+│ 3. 충돌 감지 (3-Way Comparison)                                              │
+│                                                                              │
+│ - 로컬 파일 해시 vs last_push_content_hash → 로컬 변경 여부                  │
+│ - 원격 modifiedTime vs last_push_timestamp → 원격 변경 여부                  │
+│ - 양쪽 모두 변경 시: 동기화 거부, 사용자에게 충돌 알림                       │
+│ - --force 플래그로 강제 덮어쓰기 가능                                        │
+│                                                                              │
+│ 4. 이미지 처리                                                               │
+│                                                                              │
+│ - Push: 로컬 이미지 → Google Drive 업로드 (공개 링크) → Docs에 삽입          │
+│ - Pull: Docs의 contentUri에서 다운로드 → images/에 저장 → 마크다운 경로 수정 │
+│                                                                              │
+│ 동기화 상태 파일 (.bookbook/sync_state.json)                                 │
+│                                                                              │
+│ {                                                                            │
+│   "version": 1,                                                              │
+│   "sections": {                                                              │
+│     "chapters/01-introduction/01-overview.md": {                             │
+│       "google_doc_id": "1aBcDeFg...",                                        │
+│       "last_push_content_hash": "sha256:abc123...",                          │
+│       "last_push_timestamp": "2026-02-05T10:00:00Z",                         │
+│       "last_pull_content_hash": "sha256:def456...",                          │
+│       "last_pull_timestamp": "2026-02-05T09:00:00Z",                         │
+│       "remote_modified_time": "2026-02-05T10:05:00Z",                        │
+│       "image_mappings": {                                                    │
+│         "images/diagram1.png": {                                             │
+│           "drive_file_id": "...",                                            │
+│           "public_url": "https://drive.google.com/..."                       │
+│         }                                                                    │
+│       }                                                                      │
+│     }                                                                        │
+│   }                                                                          │
+│ }                                                                            │
+│                                                                              │
+│ 의존성 (pyproject.toml)                                                      │
+│                                                                              │
+│ typer[all]                    # CLI 프레임워크                               │
+│ pydantic >= 2.0               # 데이터 모델                                  │
+│ mistune >= 3.0                # 마크다운 파서                                │
+│ google-api-python-client      # Google Docs/Drive API                        │
+│ google-auth-httplib2          # Google 인증                                  │
+│ google-auth-oauthlib          # OAuth2 플로우                                │
+│ python-frontmatter            # 마크다운 프론트매터                          │
+│                                                                              │
+│ 구현 순서                                                                    │
+│                                                                              │
+│ Phase 0: Git 초기화                                                          │
+│                                                                              │
+│ 0. git init → remote 추가                                                    │
+│ (https://github.com/modocai/Book_HealthcareAI_for_Consumer.git) → .gitignore │
+│  생성 → 초기 커밋 → push                                                     │
+│                                                                              │
+│ Phase 1: 기반 구축                                                           │
+│                                                                              │
+│ 1. pyproject.toml, 패키지 구조, .gitignore 생성                              │
+│ 2. models.py — Pydantic 데이터 모델                                          │
+│ 3. config.py — book.yaml 로드/검증                                           │
+│ 4. cli.py — Typer CLI 뼈대 + bookbook init 구현                              │
+│ 5. book/init.py — 프로젝트 스캐폴딩                                          │
+│ 6. book/scanner.py — 챕터/섹션 파일 탐색                                     │
+│                                                                              │
+│ Phase 2: Google API 연동                                                     │
+│                                                                              │
+│ 7. google/auth.py — OAuth2 인증 플로우                                       │
+│ 8. google/docs_client.py — Docs API 래퍼                                     │
+│ 9. google/drive_client.py — Drive API 래퍼                                   │
+│ 10. bookbook auth CLI 명령 구현                                              │
+│                                                                              │
+│ Phase 3: 변환기 (Converter)                                                  │
+│                                                                              │
+│ 11. converter/elements.py — 중간 표현 데이터클래스                           │
+│ 12. converter/md_to_docs.py — 마크다운 → Docs 요청 변환                      │
+│ 13. converter/docs_to_md.py — Docs JSON → 마크다운 변환                      │
+│ 14. converter/image_handler.py — 이미지 업로드/다운로드                      │
+│                                                                              │
+│ Phase 4: 동기화 엔진                                                         │
+│                                                                              │
+│ 15. sync/state.py — 동기화 상태 관리                                         │
+│ 16. sync/push.py + bookbook push — 로컬 → Google Docs                        │
+│ 17. sync/pull.py + bookbook pull — Google Docs → 로컬                        │
+│ 18. sync/conflict.py — 충돌 감지/해결                                        │
+│ 19. bookbook status 구현                                                     │
+│                                                                              │
+│ Phase 5: 테스트 및 마무리                                                    │
+│                                                                              │
+│ 20. 단위 테스트 (converter 중심)                                             │
+│ 21. 통합 테스트 (실제 Google Docs 연동)                                      │
+│ 22. AGENTS.md 작성 (AI가 콘텐츠 채울 때 참고할 가이드)                       │
+│                                                                              │
+│ 검증 방법                                                                    │
+│                                                                              │
+│ 1. bookbook init으로 프로젝트 생성 → 디렉토리 구조 확인                      │
+│ 2. bookbook auth로 Google 인증 → 토큰 저장 확인                              │
+│ 3. 샘플 마크다운 작성 후 bookbook push → Google Docs에서 서식 확인           │
+│ 4. Google Docs에서 내용 수정 후 bookbook pull → 로컬 마크다운 변경 확인      │
+│ 5. 양쪽 동시 수정 후 bookbook status → 충돌 감지 확인                        │
+│ 6. pytest 전체 테스트 통과 확인                                              │
+│                                                                              │
+│ 주요 수정 파일                                                               │
+│                                                                              │
+│ - /Users/mckim/projects/bookbook/pyproject.toml (신규)                       │
+│ - /Users/mckim/projects/bookbook/src/bookbook/ (전체 패키지, 신규)           │
+│ - /Users/mckim/projects/bookbook/tests/ (테스트, 신규)                       │
+│ - /Users/mckim/projects/bookbook/AGENTS.md (기존, 내용 작성)                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⏺ I'll implement the Bookbook project following the plan. Let me start by
+  reading the transcript for any specific details, then proceed with
+  implementation.
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ The AGENTS.md is empty. Let me create task list and begin implementing all
+  phases.
+
+⏺ Phase 0: Git Initialization
+
+⏺ Write(.gitignore)
+  ⎿  Wrote 39 lines to .gitignore
+       1 # Python
+       2 __pycache__/
+       3 *.py[cod]
+       4 *$py.class
+       5 *.so
+       6 *.egg-info/
+       7 *.egg
+       8 dist/
+       9 build/
+      10 .eggs/
+     … +29 lines (ctrl+o to expand)
+
+⏺ Bash(git init && git remote add origin
+      https://github.com/modocai/Book_HealthcareAI_for_Consumer.git)
+  ⎿ Initialized empty Git repository in /Users/mckim/projects/bookbook/.git
+    /
+
+
+⏺ Bash(git add .gitignore AGENTS.md && git commit -m "Initial commit: project
+      scaffolding…)
+  ⎿  [main (root-commit) c7d2fb9] Initial commit: project scaffolding
+      2 files changed, 38 insertions(+)
+      create mode 100644 .gitignore
+      create mode 100644 AGENTS.md
+
+⏺ Bash(git push -u origin main)
+  ⎿  branch 'main' set up to track 'origin/main'.
+     To https://github.com/modocai/Book_HealthcareAI_for_Consumer.git
+      * [new branch]      main -> main
+
+⏺ The push succeeded. But I see I've entered plan mode. Let me exit it since the
+   user already asked me to implement the plan, not to plan again.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ The plan is the same one the user wants implemented. Let me exit plan mode so
+  I can continue with the actual implementation.
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ Bookbook 구현 계획                                                      │
+     │                                                                         │
+     │ 마크다운 기반 책 작성 + Google Docs 양방향 동기화 시스템                │
+     │                                                                         │
+     │ GitHub 리포지토리                                                       │
+     │                                                                         │
+     │ - Remote: https://github.com/modocai/Book_HealthcareAI_for_Consumer.git │
+     │ - 구현 시작 전 git init → remote 추가 → 초기 커밋 → push                │
+     │                                                                         │
+     │ 프로젝트 구조                                                           │
+     │                                                                         │
+     │ bookbook/                                                               │
+     │ ├── pyproject.toml                                                      │
+     │ ├── .gitignore                                                          │
+     │ ├── AGENTS.md                                                           │
+     │ ├── src/                                                                │
+     │ │   └── bookbook/                                                       │
+     │ │       ├── __init__.py                                                 │
+     │ │       ├── cli.py                    # Typer CLI (init, auth, push,    │
+     │ pull, status)                                                           │
+     │ │       ├── config.py                 # book.yaml 로드/검증             │
+     │ │       ├── models.py                 # Pydantic 모델 (BookConfig,      │
+     │ SyncState, SectionMeta)                                                 │
+     │ │       ├── google/                                                     │
+     │ │       │   ├── __init__.py                                             │
+     │ │       │   ├── auth.py               # OAuth2 인증                     │
+     │ (google-auth-oauthlib)                                                  │
+     │ │       │   ├── docs_client.py        # Google Docs API (create, get,   │
+     │ batchUpdate)                                                            │
+     │ │       │   └── drive_client.py       # Google Drive API (이미지 업로드,│
+     │  메타데이터)                                                            │
+     │ │       ├── converter/                                                  │
+     │ │       │   ├── __init__.py                                             │
+     │ │       │   ├── elements.py           # 중간 표현 (Heading, Paragraph,  │
+     │ TextRun, Image 등)                                                      │
+     │ │       │   ├── md_to_docs.py         # Markdown → Google Docs          │
+     │ batchUpdate 요청 변환                                                   │
+     │ │       │   ├── docs_to_md.py         # Google Docs JSON → Markdown 변환│
+     │ │       │   └── image_handler.py      # 이미지 업로드/다운로드/경로 매핑│
+     │ │       ├── sync/                                                       │
+     │ │       │   ├── __init__.py                                             │
+     │ │       │   ├── state.py              # .bookbook/sync_state.json 관리  │
+     │ │       │   ├── push.py               # 로컬 markdown → Google Docs     │
+     │ │       │   ├── pull.py               # Google Docs → 로컬 markdown     │
+     │ │       │   └── conflict.py           # 충돌 감지/해결                  │
+     │ │       └── book/                                                       │
+     │ │           ├── __init__.py                                             │
+     │ │           ├── scanner.py            # chapters/ 디렉토리 스캔, 순서   │
+     │ 결정                                                                    │
+     │ │           └── init.py               # 프로젝트 초기화 스캐폴딩        │
+     │ └── tests/                                                              │
+     │     ├── conftest.py                                                     │
+     │     ├── test_converter/                                                 │
+     │     ├── test_sync/                                                      │
+     │     └── fixtures/                                                       │
+     │                                                                         │
+     │ bookbook init으로 생성되는 책 프로젝트 구조                             │
+     │                                                                         │
+     │ my-book/                                                                │
+     │ ├── book.yaml                         # 책 설정 (제목, 저자, Google 연동│
+     │  등)                                                                    │
+     │ ├── .bookbook/                                                          │
+     │ │   ├── sync_state.json               # 동기화 상태 (doc ID, 해시,      │
+     │ 타임스탬프)                                                             │
+     │ │   └── credentials.json              # Google OAuth 인증정보           │
+     │ (gitignored)                                                            │
+     │ ├── chapters/                                                           │
+     │ │   ├── 01-introduction/                                                │
+     │ │   │   ├── 01-overview.md                                              │
+     │ │   │   └── 02-background.md                                            │
+     │ │   └── 02-main-topic/                                                  │
+     │ │       ├── 01-theory.md                                                │
+     │ │       └── 02-practice.md                                              │
+     │ ├── images/                                                             │
+     │ └── .gitignore                                                          │
+     │                                                                         │
+     │ CLI 명령어                                                              │
+     │                                                                         │
+     │                                                                         │
+     │ 명령어: bookbook init                                                   │
+     │ 설명: 새 책 프로젝트 스캐폴딩                                           │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook auth                                                   │
+     │ 설명: Google OAuth2 인증                                                │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook push [--chapter CH] [--force] [--dry-run]              │
+     │ 설명: 마크다운 → Google Docs 동기화                                     │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook pull [--chapter CH] [--force] [--dry-run]              │
+     │ 설명: Google Docs → 마크다운 동기화                                     │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook status                                                 │
+     │ 설명: 동기화 상태 표시 (변경, 충돌)                                     │
+     │ 핵심 설계 결정                                                          │
+     │                                                                         │
+     │ 1. Push 전략: 전체 교체 (Full Replacement)                              │
+     │                                                                         │
+     │ - 증분 편집은 Google Docs API의 문자 인덱스 관리가 매우 복잡            │
+     │ - 대신: 문서 내용 삭제 → 마크다운을 batchUpdate 요청으로 변환 → 한번에  │
+     │ 적용                                                                    │
+     │ - 2단계 방식: (1) 텍스트 삽입 + 인덱스 추적, (2) 서식 적용              │
+     │                                                                         │
+     │ 2. 마크다운 → Google Docs 포맷 매핑                                     │
+     │ ┌──────────────┬───────────────────────────────────────────────────────┐│
+     │ │   Markdown   │                      Google Docs                      ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ # Heading    │ updateParagraphStyle → HEADING_1                      ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ **bold**     │ updateTextStyle → bold: true                          ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ *italic*     │ updateTextStyle → italic: true                        ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ `code`       │ updateTextStyle → fontFamily: "Courier New"           ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ [link](url)  │ updateTextStyle → link: {url}                         ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ - item       │ createParagraphBullets → BULLET_DISC_CIRCLE_SQUARE    ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ 1. item      │ createParagraphBullets → NUMBERED_DECIMAL_ALPHA_ROMAN ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ ![alt](path) │ 이미지를 Drive 업로드 후 insertInlineImage            ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ 코드 블록    │ 단일 셀 테이블 + 모노스페이스 폰트 (감지 용이)        ││
+     │ └──────────────┴───────────────────────────────────────────────────────┘│
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │ 3. 충돌 감지 (3-Way Comparison)                                         │
+     │                                                                         │
+     │ - 로컬 파일 해시 vs last_push_content_hash → 로컬 변경 여부             │
+     │ - 원격 modifiedTime vs last_push_timestamp → 원격 변경 여부             │
+     │ - 양쪽 모두 변경 시: 동기화 거부, 사용자에게 충돌 알림                  │
+     │ - --force 플래그로 강제 덮어쓰기 가능                                   │
+     │                                                                         │
+     │ 4. 이미지 처리                                                          │
+     │                                                                         │
+     │ - Push: 로컬 이미지 → Google Drive 업로드 (공개 링크) → Docs에 삽입     │
+     │ - Pull: Docs의 contentUri에서 다운로드 → images/에 저장 → 마크다운 경로 │
+     │ 수정                                                                    │
+     │                                                                         │
+     │ 동기화 상태 파일 (.bookbook/sync_state.json)                            │
+     │                                                                         │
+     │ {                                                                       │
+     │   "version": 1,                                                         │
+     │   "sections": {                                                         │
+     │     "chapters/01-introduction/01-overview.md": {                        │
+     │       "google_doc_id": "1aBcDeFg...",                                   │
+     │       "last_push_content_hash": "sha256:abc123...",                     │
+     │       "last_push_timestamp": "2026-02-05T10:00:00Z",                    │
+     │       "last_pull_content_hash": "sha256:def456...",                     │
+     │       "last_pull_timestamp": "2026-02-05T09:00:00Z",                    │
+     │       "remote_modified_time": "2026-02-05T10:05:00Z",                   │
+     │       "image_mappings": {                                               │
+     │         "images/diagram1.png": {                                        │
+     │           "drive_file_id": "...",                                       │
+     │           "public_url": "https://drive.google.com/..."                  │
+     │         }                                                               │
+     │       }                                                                 │
+     │     }                                                                   │
+     │   }                                                                     │
+     │ }                                                                       │
+     │                                                                         │
+     │ 의존성 (pyproject.toml)                                                 │
+     │                                                                         │
+     │ typer[all]                    # CLI 프레임워크                          │
+     │ pydantic >= 2.0               # 데이터 모델                             │
+     │ mistune >= 3.0                # 마크다운 파서                           │
+     │ google-api-python-client      # Google Docs/Drive API                   │
+     │ google-auth-httplib2          # Google 인증                             │
+     │ google-auth-oauthlib          # OAuth2 플로우                           │
+     │ python-frontmatter            # 마크다운 프론트매터                     │
+     │                                                                         │
+     │ 구현 순서                                                               │
+     │                                                                         │
+     │ Phase 0: Git 초기화                                                     │
+     │                                                                         │
+     │ 0. git init → remote 추가                                               │
+     │ (https://github.com/modocai/Book_HealthcareAI_for_Consumer.git) →       │
+     │ .gitignore 생성 → 초기 커밋 → push                                      │
+     │                                                                         │
+     │ Phase 1: 기반 구축                                                      │
+     │                                                                         │
+     │ 1. pyproject.toml, 패키지 구조, .gitignore 생성                         │
+     │ 2. models.py — Pydantic 데이터 모델                                     │
+     │ 3. config.py — book.yaml 로드/검증                                      │
+     │ 4. cli.py — Typer CLI 뼈대 + bookbook init 구현                         │
+     │ 5. book/init.py — 프로젝트 스캐폴딩                                     │
+     │ 6. book/scanner.py — 챕터/섹션 파일 탐색                                │
+     │                                                                         │
+     │ Phase 2: Google API 연동                                                │
+     │                                                                         │
+     │ 7. google/auth.py — OAuth2 인증 플로우                                  │
+     │ 8. google/docs_client.py — Docs API 래퍼                                │
+     │ 9. google/drive_client.py — Drive API 래퍼                              │
+     │ 10. bookbook auth CLI 명령 구현                                         │
+     │                                                                         │
+     │ Phase 3: 변환기 (Converter)                                             │
+     │                                                                         │
+     │ 11. converter/elements.py — 중간 표현 데이터클래스                      │
+     │ 12. converter/md_to_docs.py — 마크다운 → Docs 요청 변환                 │
+     │ 13. converter/docs_to_md.py — Docs JSON → 마크다운 변환                 │
+     │ 14. converter/image_handler.py — 이미지 업로드/다운로드                 │
+     │                                                                         │
+     │ Phase 4: 동기화 엔진                                                    │
+     │                                                                         │
+     │ 15. sync/state.py — 동기화 상태 관리                                    │
+     │ 16. sync/push.py + bookbook push — 로컬 → Google Docs                   │
+     │ 17. sync/pull.py + bookbook pull — Google Docs → 로컬                   │
+     │ 18. sync/conflict.py — 충돌 감지/해결                                   │
+     │ 19. bookbook status 구현                                                │
+     │                                                                         │
+     │ Phase 5: 테스트 및 마무리                                               │
+     │                                                                         │
+     │ 20. 단위 테스트 (converter 중심)                                        │
+     │ 21. 통합 테스트 (실제 Google Docs 연동)                                 │
+     │ 22. AGENTS.md 작성 (AI가 콘텐츠 채울 때 참고할 가이드)                  │
+     │                                                                         │
+     │ 검증 방법                                                               │
+     │                                                                         │
+     │ 1. bookbook init으로 프로젝트 생성 → 디렉토리 구조 확인                 │
+     │ 2. bookbook auth로 Google 인증 → 토큰 저장 확인                         │
+     │ 3. 샘플 마크다운 작성 후 bookbook push → Google Docs에서 서식 확인      │
+     │ 4. Google Docs에서 내용 수정 후 bookbook pull → 로컬 마크다운 변경 확인 │
+     │ 5. 양쪽 동시 수정 후 bookbook status → 충돌 감지 확인                   │
+     │ 6. pytest 전체 테스트 통과 확인                                         │
+     │                                                                         │
+     │ 주요 수정 파일                                                          │
+     │                                                                         │
+     │ - /Users/mckim/projects/bookbook/pyproject.toml (신규)                  │
+     │ - /Users/mckim/projects/bookbook/src/bookbook/ (전체 패키지, 신규)      │
+     │ - /Users/mckim/projects/bookbook/tests/ (테스트, 신규)                  │
+     │ - /Users/mckim/projects/bookbook/AGENTS.md (기존, 내용 작성)            │
+     │                                                                         │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+❯ 우리 계획을 조금 수정하자. 기존 플랜에서 docs 수정을 -> 소스코드 쪽에     
+  넣는 과정도 있고, 소스코드 -> 출판 버전을 만드는 과정도 있어. 양방향으로  
+  수정이 가능하게 하고 싶은데 저자들이 docs 를 수정하다가 sync 되거나 하면  
+  충돌이 있을수 있을것 같아. 프로젝트 관리 구조를 어떻게 짜면 좋을까?       
+
+⏺ 좋은 질문입니다. 핵심 문제를 정리하면:
+
+  문제 분석
+
+  양방향 동기화에서 **"지금 누가 이 섹션의 주인인가?"**가 불명확하면 충돌이
+  필연적입니다.
+
+  저자 A: markdown 수정 중 → push
+  저자 B: Google Docs에서 수정 중 → 저자 A의 push로 덮어씌워짐 💥
+
+  해결 방안: 섹션별 소유권 상태 머신
+
+  각 섹션(마크다운 파일)에 명시적 소유권 상태를 부여하는 방식입니다:
+
+  ┌─────────┐   bookbook push    ┌──────────┐
+  │  LOCAL   │ ─────────────────→ │  REMOTE  │
+  │ (마크다운  │                    │ (Google   │
+  │  편집 중)  │ ←───────────────── │  Docs     │
+  └─────────┘   bookbook pull    │  편집 중)  │
+                                  └──────────┘
+
+  상태 정의
+  ┌──────────┬──────────────────┬─────────────────────┬────────────────────────┐
+  │   상태   │      소유권      │      허용 동작      │       금지 동작        │
+  ├──────────┼──────────────────┼─────────────────────┼────────────────────────┤
+  │ local    │ 마크다운이 정본  │ push (Docs에 반영)  │ pull (로컬 변경 유실   │
+  │          │                  │                     │ 위험)                  │
+  ├──────────┼──────────────────┼─────────────────────┼────────────────────────┤
+  │ remote   │ Google Docs가    │ pull (마크다운에    │ push (원격 변경 유실   │
+  │          │ 정본             │ 반영)               │ 위험)                  │
+  ├──────────┼──────────────────┼─────────────────────┼────────────────────────┤
+  │ synced   │ 양쪽 동일        │ push, pull 모두     │ -                      │
+  │          │                  │ 가능                │                        │
+  ├──────────┼──────────────────┼─────────────────────┼────────────────────────┤
+  │ conflict │ 양쪽 모두 변경됨 │ --force 필요        │ 일반 push/pull 차단    │
+  └──────────┴──────────────────┴─────────────────────┴────────────────────────┘
+  워크플로우 예시
+
+  # book.yaml에서 섹션별 워크플로우 설정 가능
+  workflow:
+    default_owner: local          # 기본: 마크다운이 정본
+
+  chapters:
+    01-introduction:
+      sections:
+        01-overview.md:
+          owner: remote            # 이 섹션은 지금 Docs에서 편집 중
+          locked_by: "editor-kim"  # 누가 편집 중인지
+        02-background.md:
+          owner: local             # 이 섹션은 로컬에서 작업 중
+
+  bookbook status 출력 예시
+
+  📖 Healthcare AI for Consumer
+
+  Chapter 01: Introduction
+    ✏️  01-overview.md     [REMOTE] editor-kim이 Docs에서 편집 중
+    📝 02-background.md    [LOCAL]  로컬 변경 3건, push 가능
+
+  Chapter 02: Main Topic
+    ✅ 01-theory.md        [SYNCED] 양쪽 동일
+    ⚠️  02-practice.md     [CONFLICT] 양쪽 모두 변경됨 - 해결 필요
+
+  전환 명령어 추가
+
+  # 소유권 전환
+  bookbook checkout 01-overview.md        # remote → local (pull 후 소유권 전환)
+  bookbook publish  01-overview.md        # local → remote (push 후 소유권 전환)
+
+  # 또는 기존 push/pull에 통합
+  bookbook push --handoff                 # push 후 소유권을 remote로 전환
+  bookbook pull --handoff                 # pull 후 소유권을 local로 전환
+
+  대안 비교
+  방식: A. 소유권 상태 머신 (추천)
+  장점: 충돌 원천 방지, 명확한 책임
+  단점: 전환 명령 필요
+  ────────────────────────────────────────
+  방식: B. Lock 기반
+  장점: 단순
+  단점: 락 풀기 잊으면 교착
+  ────────────────────────────────────────
+  방식: C. 자동 머지 (git-style)
+  장점: 유연함
+  단점: 마크다운↔Docs 변환 시 diff가 부정확
+  ────────────────────────────────────────
+  방식: D. 단방향만 지원
+  장점: 가장 단순
+  단점: 양방향 요구사항 미충족
+  A가 추천인 이유: 마크다운↔Google Docs 변환은 손실이 있을 수 있어서 git-style
+  자동 머지가 어렵습니다. 대신 "지금 누가 수정하는지"를 명시적으로 관리하면 충돌
+   자체를 예방합니다.
+
+  ---
+  이 방향으로 기존 플랜을 수정할까요? 아니면 다른 접근이 더 맞을 것 같으신지요?
+
+✻ Churned for 42s
+
+❯ 차라리 이렇게 하자. 그냥 Git의 pull/push 기능을 그대로 사용하고 Agent     
+  들한테 docs에서 markdown으로 받아오는 pull 동작은 섹션별로 (google docs   
+  heading 포맷을 이용해서 감지 할 수 있나?) book pull 명령어로 하고 book    
+  push 는 publish 로 바꾸고 새로운 Google Docs 완성본을 만들어 나가는 걸로  
+  하자.                                                                     
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ 그럼 publish는 코드랑 새로는 google docs 문서를 만들면 되고 (date stamp   
+  활용) book pull 은 전체 내용을 다 pull 하기보다는 저자들이 논의 해서 바꾼 
+   내용이나 코멘트 들을 GitHub ticket으로 AI agent들이 쉽게 마크다운에      
+  반영해서 만드는 걸로 하자.                                                
+
+⏺ This is a much cleaner architecture. Let me summarize my understanding and
+  update the plan.
+
+  New model:
+  - Git = source of truth (always)
+  - book publish = markdown → new Google Docs (date-stamped, read-only output)
+  - book pull = Docs comments/suggestions → GitHub issues (for AI agents to
+  process)
+  - No bidirectional sync, no conflict resolution needed
+
+  Let me update the plan file.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now let me rewrite the plan with the new architecture.
+
+⏺ Updated plan
+  ⎿  /plan to preview
+
+⏺ Plan updated. Key changes from v1:
+
+  - 양방향 sync 제거 → 충돌 문제 근본적으로 해결
+  - publish: 매번 새 Google Docs 생성 (date + git hash로 버전 관리)
+  - pull: Docs 전체 내용이 아닌 코멘트/제안만 가져와서 GitHub Issue로 변환
+  - AI Agent 루프: Issue → markdown 수정 → PR → merge → publish
+  - sync/ 모듈, docs_to_md.py, conflict 관리 모두 삭제
+  - PyGithub 의존성 추가 (Issue 생성용)
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ Bookbook 구현 계획 (v2)                                                 │
+     │                                                                         │
+     │ 마크다운 기반 책 작성 도구 — Git이 정본, Google Docs는 출판/리뷰 채널   │
+     │                                                                         │
+     │ 핵심 아키텍처 변경 (v1 대비)                                            │
+     │                                                                         │
+     │ v1: 양방향 동기화 (markdown ↔ Google Docs)  ← 충돌 지옥                 │
+     │ v2: 단방향 파이프라인 + 피드백 루프           ← 깔끔!                   │
+     │                                                                         │
+     │     ┌─────────────┐    publish     ┌──────────────┐                     │
+     │     │  Markdown    │ ────────────→ │  Google Docs  │  (새 문서,         │
+     │ date-stamped)                                                           │
+     │     │  (Git 정본)   │               │  (읽기 + 코멘트) │                │
+     │     └─────────────┘               └──────┬───────┘                      │
+     │           ↑                              │                              │
+     │           │    AI Agent가 반영            │ pull (코멘트/제안 → GitHub  │
+     │ Issues)                                                                 │
+     │           │    (GitHub Issue → PR)       │                              │
+     │           └──────────────────────────────┘                              │
+     │                                                                         │
+     │ - book publish: markdown → 새 Google Docs 생성 (매번 새 문서, 날짜      │
+     │ 스탬프)                                                                 │
+     │ - book pull: Google Docs 코멘트/제안 → GitHub Issues 생성               │
+     │ - 충돌 없음: Google Docs는 절대 정본이 아님, 코멘트 채널일 뿐           │
+     │ - AI Agent 루프: GitHub Issue를 보고 AI가 markdown 수정 → PR → merge →  │
+     │ publish                                                                 │
+     │                                                                         │
+     │ GitHub 리포지토리                                                       │
+     │                                                                         │
+     │ - Remote: https://github.com/modocai/Book_HealthcareAI_for_Consumer.git │
+     │ - 이미 git init + remote 추가 + 초기 커밋 완료                          │
+     │                                                                         │
+     │ 프로젝트 구조                                                           │
+     │                                                                         │
+     │ bookbook/                                                               │
+     │ ├── pyproject.toml                                                      │
+     │ ├── .gitignore                                                          │
+     │ ├── AGENTS.md                                                           │
+     │ ├── src/                                                                │
+     │ │   └── bookbook/                                                       │
+     │ │       ├── __init__.py                                                 │
+     │ │       ├── cli.py                    # Typer CLI (init, auth, publish, │
+     │ pull, status)                                                           │
+     │ │       ├── config.py                 # book.yaml 로드/검증             │
+     │ │       ├── models.py                 # Pydantic 모델 (BookConfig,      │
+     │ PublishRecord, etc.)                                                    │
+     │ │       ├── google/                                                     │
+     │ │       │   ├── __init__.py                                             │
+     │ │       │   ├── auth.py               # OAuth2 인증                     │
+     │ (google-auth-oauthlib)                                                  │
+     │ │       │   ├── docs_client.py        # Google Docs API (create, get,   │
+     │ batchUpdate, comments)                                                  │
+     │ │       │   └── drive_client.py       # Google Drive API (이미지 업로드,│
+     │  폴더 관리)                                                             │
+     │ │       ├── converter/                                                  │
+     │ │       │   ├── __init__.py                                             │
+     │ │       │   ├── elements.py           # 중간 표현 (Heading, Paragraph,  │
+     │ TextRun, Image 등)                                                      │
+     │ │       │   ├── md_to_docs.py         # Markdown → Google Docs          │
+     │ batchUpdate 요청 변환                                                   │
+     │ │       │   └── image_handler.py      # 이미지 업로드/경로 매핑         │
+     │ │       ├── publish/                                                    │
+     │ │       │   ├── __init__.py                                             │
+     │ │       │   ├── publisher.py          # markdown → 새 Google Docs 생성  │
+     │ (핵심)                                                                  │
+     │ │       │   └── history.py            # 출판 이력 관리                  │
+     │ (.bookbook/publish_history.json)                                        │
+     │ │       ├── pull/                                                       │
+     │ │       │   ├── __init__.py                                             │
+     │ │       │   ├── comments.py           # Google Docs 코멘트/제안 읽기    │
+     │ │       │   └── issues.py             # 코멘트 → GitHub Issues 변환/생성│
+     │ │       └── book/                                                       │
+     │ │           ├── __init__.py                                             │
+     │ │           ├── scanner.py            # chapters/ 디렉토리 스캔, 순서   │
+     │ 결정                                                                    │
+     │ │           └── init.py               # 프로젝트 초기화 스캐폴딩        │
+     │ └── tests/                                                              │
+     │     ├── conftest.py                                                     │
+     │     ├── test_converter/                                                 │
+     │     ├── test_publish/                                                   │
+     │     ├── test_pull/                                                      │
+     │     └── fixtures/                                                       │
+     │                                                                         │
+     │ v1에서 제거된 것:                                                       │
+     │ - sync/ 모듈 전체 (state, conflict, 양방향 sync)                        │
+     │ - converter/docs_to_md.py (Docs→markdown 변환 불필요)                   │
+     │                                                                         │
+     │ v2에서 추가된 것:                                                       │
+     │ - publish/ 모듈 (새 문서 생성 + 이력 관리)                              │
+     │ - pull/ 모듈 (코멘트 읽기 + GitHub Issue 생성)                          │
+     │                                                                         │
+     │ bookbook init으로 생성되는 책 프로젝트 구조                             │
+     │                                                                         │
+     │ my-book/                                                                │
+     │ ├── book.yaml                         # 책 설정 (제목, 저자,            │
+     │ Google/GitHub 연동)                                                     │
+     │ ├── .bookbook/                                                          │
+     │ │   ├── publish_history.json          # 출판 이력 (doc ID, 날짜, 커밋   │
+     │ 해시)                                                                   │
+     │ │   └── credentials.json              # Google OAuth 인증정보           │
+     │ (gitignored)                                                            │
+     │ ├── chapters/                                                           │
+     │ │   ├── 01-introduction/                                                │
+     │ │   │   ├── 01-overview.md                                              │
+     │ │   │   └── 02-background.md                                            │
+     │ │   └── 02-main-topic/                                                  │
+     │ │       ├── 01-theory.md                                                │
+     │ │       └── 02-practice.md                                              │
+     │ ├── images/                                                             │
+     │ └── .gitignore                                                          │
+     │                                                                         │
+     │ CLI 명령어                                                              │
+     │                                                                         │
+     │                                                                         │
+     │ 명령어: bookbook init                                                   │
+     │ 설명: 새 책 프로젝트 스캐폴딩                                           │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook auth                                                   │
+     │ 설명: Google OAuth2 인증                                                │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook publish [--chapter CH] [--dry-run]                     │
+     │ 설명: markdown → 새 Google Docs 생성                                    │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook pull [--doc-id ID] [--all]                             │
+     │ 설명: Google Docs 코멘트 → GitHub Issues                                │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook status                                                 │
+     │ 설명: 출판 이력, 미처리 코멘트 수 표시                                  │
+     │ 핵심 설계 결정                                                          │
+     │                                                                         │
+     │ 1. Publish 전략: 매번 새 문서 생성                                      │
+     │                                                                         │
+     │ - bookbook publish 실행 시 새로운 Google Docs 문서 생성                 │
+     │ - 문서 제목: {책제목} - {날짜} - {git short hash} (예: Healthcare AI -  │
+     │ 2026-02-05 - a1b2c3d)                                                   │
+     │ - Google Drive 폴더에 정리 (book.yaml의 google.drive_folder_id)         │
+     │ - 이전 출판본은 보존됨 → 버전 히스토리 자연스럽게 관리                  │
+     │                                                                         │
+     │ 2. 마크다운 → Google Docs 포맷 매핑 (v1과 동일)                         │
+     │ ┌──────────────┬───────────────────────────────────────────────────────┐│
+     │ │   Markdown   │                      Google Docs                      ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ # Heading    │ updateParagraphStyle → HEADING_1                      ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ **bold**     │ updateTextStyle → bold: true                          ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ *italic*     │ updateTextStyle → italic: true                        ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ `code`       │ updateTextStyle → fontFamily: "Courier New"           ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ [link](url)  │ updateTextStyle → link: {url}                         ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ - item       │ createParagraphBullets → BULLET_DISC_CIRCLE_SQUARE    ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ 1. item      │ createParagraphBullets → NUMBERED_DECIMAL_ALPHA_ROMAN ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ ![alt](path) │ 이미지를 Drive 업로드 후 insertInlineImage            ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ 코드 블록    │ 단일 셀 테이블 + 모노스페이스 폰트                    ││
+     │ └──────────────┴───────────────────────────────────────────────────────┘│
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │ 3. Pull 전략: 코멘트 → GitHub Issues                                    │
+     │                                                                         │
+     │ - Google Docs API로 코멘트(comments) 및 제안(suggestions) 읽기          │
+     │ - 각 코멘트를 GitHub Issue로 변환:                                      │
+     │   - 제목: 코멘트가 달린 텍스트의 위치 (heading 기반 섹션 감지)          │
+     │   - 본문: 코멘트 내용 + 인용된 원문 + Docs 링크                         │
+     │   - 라벨: book-review, 챕터명                                           │
+     │ - 이미 Issue로 변환된 코멘트는 중복 생성하지 않음 (resolved 상태 or 이력│
+     │  추적)                                                                  │
+     │ - AI Agent가 Issue를 보고 markdown 수정 → PR 생성                       │
+     │                                                                         │
+     │ 4. 이미지 처리 (Publish 방향만)                                         │
+     │                                                                         │
+     │ - Publish: 로컬 이미지 → Google Drive 업로드 (공개 링크) → Docs에 삽입  │
+     │ - Pull에서 이미지 다운로드는 불필요 (코멘트만 가져오므로)               │
+     │                                                                         │
+     │ 5. 섹션 위치 감지 (Heading 기반)                                        │
+     │                                                                         │
+     │ - Google Docs의 코멘트에는 quotedFileContent (인용 텍스트) 가 포함됨    │
+     │ - 인용 텍스트를 markdown 파일에서 검색 → 어느 챕터/섹션인지 매핑        │
+     │ - Heading 구조를 활용하여 "Chapter 01 > Section 02" 형태로 Issue에 위치 │
+     │ 표시                                                                    │
+     │                                                                         │
+     │ 출판 이력 파일 (.bookbook/publish_history.json)                         │
+     │                                                                         │
+     │ {                                                                       │
+     │   "version": 1,                                                         │
+     │   "publications": [                                                     │
+     │     {                                                                   │
+     │       "google_doc_id": "1aBcDeFg...",                                   │
+     │       "google_doc_url":                                                 │
+     │ "https://docs.google.com/document/d/1aBcDeFg.../edit",                  │
+     │       "published_at": "2026-02-05T10:00:00Z",                           │
+     │       "git_commit_hash": "a1b2c3d",                                     │
+     │       "git_branch": "main",                                             │
+     │       "title": "Healthcare AI - 2026-02-05 - a1b2c3d",                  │
+     │       "chapters_included": ["01-introduction", "02-main-topic"],        │
+     │       "pulled_comments": ["comment_id_1", "comment_id_2"]               │
+     │     }                                                                   │
+     │   ]                                                                     │
+     │ }                                                                       │
+     │                                                                         │
+     │ book.yaml 설정 예시                                                     │
+     │                                                                         │
+     │ book:                                                                   │
+     │   title: "소비자를 위한 헬스케어 AI"                                    │
+     │   authors:                                                              │
+     │     - name: "Author Name"                                               │
+     │       email: "author@example.com"                                       │
+     │                                                                         │
+     │ google:                                                                 │
+     │   drive_folder_id: "1xYz..."         # 출판물이 저장될 Drive 폴더       │
+     │   client_secrets_file: "client_secret.json"  # OAuth client secret      │
+     │                                                                         │
+     │ github:                                                                 │
+     │   repo: "modocai/Book_HealthcareAI_for_Consumer"                        │
+     │   labels:                                                               │
+     │     - "book-review"                                                     │
+     │                                                                         │
+     │ 의존성 (pyproject.toml)                                                 │
+     │                                                                         │
+     │ typer[all]                    # CLI 프레임워크                          │
+     │ pydantic >= 2.0               # 데이터 모델                             │
+     │ mistune >= 3.0                # 마크다운 파서                           │
+     │ google-api-python-client      # Google Docs/Drive API                   │
+     │ google-auth-httplib2          # Google 인증                             │
+     │ google-auth-oauthlib          # OAuth2 플로우                           │
+     │ python-frontmatter            # 마크다운 프론트매터                     │
+     │ PyGithub                      # GitHub Issue 생성                       │
+     │ pyyaml                        # book.yaml 파싱                          │
+     │                                                                         │
+     │ 구현 순서                                                               │
+     │                                                                         │
+     │ Phase 0: Git 초기화 ✅ 완료                                             │
+     │                                                                         │
+     │ - git init → remote 추가 → .gitignore → 초기 커밋 → push                │
+     │                                                                         │
+     │ Phase 1: 기반 구축                                                      │
+     │                                                                         │
+     │ 1. pyproject.toml, 패키지 구조 생성                                     │
+     │ 2. models.py — Pydantic 모델 (BookConfig, PublishRecord, CommentInfo)   │
+     │ 3. config.py — book.yaml 로드/검증                                      │
+     │ 4. cli.py — Typer CLI 뼈대 + bookbook init                              │
+     │ 5. book/init.py — 프로젝트 스캐폴딩                                     │
+     │ 6. book/scanner.py — 챕터/섹션 파일 탐색                                │
+     │                                                                         │
+     │ Phase 2: Google API 연동                                                │
+     │                                                                         │
+     │ 7. google/auth.py — OAuth2 인증 플로우                                  │
+     │ 8. google/docs_client.py — Docs API (create, batchUpdate, get comments) │
+     │ 9. google/drive_client.py — Drive API (이미지 업로드, 폴더 관리)        │
+     │ 10. bookbook auth CLI 명령 구현                                         │
+     │                                                                         │
+     │ Phase 3: 변환기 + Publish                                               │
+     │                                                                         │
+     │ 11. converter/elements.py — 중간 표현 데이터클래스                      │
+     │ 12. converter/md_to_docs.py — 마크다운 → Docs 요청 변환                 │
+     │ 13. converter/image_handler.py — 이미지 업로드                          │
+     │ 14. publish/publisher.py — 새 Google Docs 생성 (전체 파이프라인)        │
+     │ 15. publish/history.py — 출판 이력 관리                                 │
+     │ 16. bookbook publish CLI 명령 구현                                      │
+     │                                                                         │
+     │ Phase 4: Pull (코멘트 → Issues)                                         │
+     │                                                                         │
+     │ 17. pull/comments.py — Google Docs 코멘트/제안 읽기 + 섹션 위치 매핑    │
+     │ 18. pull/issues.py — 코멘트 → GitHub Issue 변환/생성                    │
+     │ 19. bookbook pull CLI 명령 구현                                         │
+     │ 20. bookbook status CLI 명령 구현                                       │
+     │                                                                         │
+     │ Phase 5: 테스트 및 마무리                                               │
+     │                                                                         │
+     │ 21. 단위 테스트 (converter, publish, pull 모듈)                         │
+     │ 22. AGENTS.md 작성 (AI Agent가 Issue → markdown 수정할 때 참고할 가이드)│
+     │                                                                         │
+     │ 검증 방법                                                               │
+     │                                                                         │
+     │ 1. bookbook init으로 프로젝트 생성 → 디렉토리 구조 확인                 │
+     │ 2. bookbook auth로 Google 인증 → 토큰 저장 확인                         │
+     │ 3. 샘플 마크다운 작성 후 bookbook publish → 새 Google Docs에서 서식 확인│
+     │ 4. Google Docs에서 코멘트 작성 후 bookbook pull → GitHub Issue 생성 확인│
+     │ 5. bookbook status → 출판 이력 + 미처리 코멘트 표시 확인                │
+     │ 6. pytest 전체 테스트 통과 확인                                         │
+     │                                                                         │
+     │ 주요 파일                                                               │
+     │                                                                         │
+     │ - /Users/mckim/projects/bookbook/pyproject.toml (신규)                  │
+     │ - /Users/mckim/projects/bookbook/src/bookbook/ (전체 패키지, 신규)      │
+     │ - /Users/mckim/projects/bookbook/tests/ (테스트, 신규)                  │
+     │ - /Users/mckim/projects/bookbook/AGENTS.md (기존, 내용 작성)            │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     ╰─────────────────────────────────────────────────────────────────────────╯
+
+❯ book pull 은 디폴트 값은 최신 문서를 참고하도록 해야하겠네. 구글          
+  드라이브랑 구글 문서에 다 접근할 수 있는 API 가 필요하겠구나. 그리고 book 
+   pull을 섹션별로 할 수 있게 해야할 것 같아. docs 문서는 timestamp 나      
+  제목에 시간혹은 버전 정보를 쉽게 알수있게 넣어서 Agent들이 최신 문서를    
+  쉽게 알수 있도록 해야해.                                                  
+
+⏺ Good points. Let me update the plan with these refinements.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now let me apply the three refinements to the plan:
+
+⏺ Updated plan
+  ⎿  /plan to preview
+
+⏺ Updated plan
+  ⎿  /plan to preview
+
+⏺ Updated plan
+  ⎿  /plan to preview
+
+⏺ Now let me also update the section detection part and the Google API note:
+
+⏺ Updated plan
+  ⎿  /plan to preview
+
+⏺ Updated the plan with three refinements:
+
+  1. book pull 기본값 = 최신 문서: --doc-id 없으면 publish_history 또는 Drive
+  폴더에서 v{순번} 가장 높은 문서를 자동 선택
+  2. 섹션별 pull: --section "01-introduction" 옵션으로 특정 챕터 코멘트만 필터링
+   (Docs 내 Heading 구조 파싱 기반)
+  3. 문서 제목에 버전 정보: Healthcare AI v003 2026-02-05 a1b2c3d 형식 → Agent가
+   순번+날짜+커밋으로 최신 문서를 즉시 식별
+  4. Google API 스코프 명시: Docs API + Drive API (파일 관리 + 코멘트 조회) 모두
+   필요
+  ⎿  User rejected Claude's plan:
+     ╭─────────────────────────────────────────────────────────────────────────╮
+     │ Bookbook 구현 계획 (v2)                                                 │
+     │                                                                         │
+     │ 마크다운 기반 책 작성 도구 — Git이 정본, Google Docs는 출판/리뷰 채널   │
+     │                                                                         │
+     │ 핵심 아키텍처 변경 (v1 대비)                                            │
+     │                                                                         │
+     │ v1: 양방향 동기화 (markdown ↔ Google Docs)  ← 충돌 지옥                 │
+     │ v2: 단방향 파이프라인 + 피드백 루프           ← 깔끔!                   │
+     │                                                                         │
+     │     ┌─────────────┐    publish     ┌──────────────┐                     │
+     │     │  Markdown    │ ────────────→ │  Google Docs  │  (새 문서,         │
+     │ date-stamped)                                                           │
+     │     │  (Git 정본)   │               │  (읽기 + 코멘트) │                │
+     │     └─────────────┘               └──────┬───────┘                      │
+     │           ↑                              │                              │
+     │           │    AI Agent가 반영            │ pull (코멘트/제안 → GitHub  │
+     │ Issues)                                                                 │
+     │           │    (GitHub Issue → PR)       │                              │
+     │           └──────────────────────────────┘                              │
+     │                                                                         │
+     │ - book publish: markdown → 새 Google Docs 생성 (매번 새 문서, 날짜      │
+     │ 스탬프)                                                                 │
+     │ - book pull: Google Docs 코멘트/제안 → GitHub Issues 생성               │
+     │ - 충돌 없음: Google Docs는 절대 정본이 아님, 코멘트 채널일 뿐           │
+     │ - AI Agent 루프: GitHub Issue를 보고 AI가 markdown 수정 → PR → merge →  │
+     │ publish                                                                 │
+     │                                                                         │
+     │ GitHub 리포지토리                                                       │
+     │                                                                         │
+     │ - Remote: https://github.com/modocai/Book_HealthcareAI_for_Consumer.git │
+     │ - 이미 git init + remote 추가 + 초기 커밋 완료                          │
+     │                                                                         │
+     │ 프로젝트 구조                                                           │
+     │                                                                         │
+     │ bookbook/                                                               │
+     │ ├── pyproject.toml                                                      │
+     │ ├── .gitignore                                                          │
+     │ ├── AGENTS.md                                                           │
+     │ ├── src/                                                                │
+     │ │   └── bookbook/                                                       │
+     │ │       ├── __init__.py                                                 │
+     │ │       ├── cli.py                    # Typer CLI (init, auth, publish, │
+     │ pull, status)                                                           │
+     │ │       ├── config.py                 # book.yaml 로드/검증             │
+     │ │       ├── models.py                 # Pydantic 모델 (BookConfig,      │
+     │ PublishRecord, etc.)                                                    │
+     │ │       ├── google/                                                     │
+     │ │       │   ├── __init__.py                                             │
+     │ │       │   ├── auth.py               # OAuth2 인증                     │
+     │ (google-auth-oauthlib)                                                  │
+     │ │       │   ├── docs_client.py        # Google Docs API (create, get,   │
+     │ batchUpdate, comments)                                                  │
+     │ │       │   └── drive_client.py       # Google Drive API (이미지 업로드,│
+     │  폴더 관리)                                                             │
+     │ │       ├── converter/                                                  │
+     │ │       │   ├── __init__.py                                             │
+     │ │       │   ├── elements.py           # 중간 표현 (Heading, Paragraph,  │
+     │ TextRun, Image 등)                                                      │
+     │ │       │   ├── md_to_docs.py         # Markdown → Google Docs          │
+     │ batchUpdate 요청 변환                                                   │
+     │ │       │   └── image_handler.py      # 이미지 업로드/경로 매핑         │
+     │ │       ├── publish/                                                    │
+     │ │       │   ├── __init__.py                                             │
+     │ │       │   ├── publisher.py          # markdown → 새 Google Docs 생성  │
+     │ (핵심)                                                                  │
+     │ │       │   └── history.py            # 출판 이력 관리                  │
+     │ (.bookbook/publish_history.json)                                        │
+     │ │       ├── pull/                                                       │
+     │ │       │   ├── __init__.py                                             │
+     │ │       │   ├── comments.py           # Google Docs 코멘트/제안 읽기    │
+     │ │       │   └── issues.py             # 코멘트 → GitHub Issues 변환/생성│
+     │ │       └── book/                                                       │
+     │ │           ├── __init__.py                                             │
+     │ │           ├── scanner.py            # chapters/ 디렉토리 스캔, 순서   │
+     │ 결정                                                                    │
+     │ │           └── init.py               # 프로젝트 초기화 스캐폴딩        │
+     │ └── tests/                                                              │
+     │     ├── conftest.py                                                     │
+     │     ├── test_converter/                                                 │
+     │     ├── test_publish/                                                   │
+     │     ├── test_pull/                                                      │
+     │     └── fixtures/                                                       │
+     │                                                                         │
+     │ v1에서 제거된 것:                                                       │
+     │ - sync/ 모듈 전체 (state, conflict, 양방향 sync)                        │
+     │ - converter/docs_to_md.py (Docs→markdown 변환 불필요)                   │
+     │                                                                         │
+     │ v2에서 추가된 것:                                                       │
+     │ - publish/ 모듈 (새 문서 생성 + 이력 관리)                              │
+     │ - pull/ 모듈 (코멘트 읽기 + GitHub Issue 생성)                          │
+     │                                                                         │
+     │ bookbook init으로 생성되는 책 프로젝트 구조                             │
+     │                                                                         │
+     │ my-book/                                                                │
+     │ ├── book.yaml                         # 책 설정 (제목, 저자,            │
+     │ Google/GitHub 연동)                                                     │
+     │ ├── .bookbook/                                                          │
+     │ │   ├── publish_history.json          # 출판 이력 (doc ID, 날짜, 커밋   │
+     │ 해시)                                                                   │
+     │ │   └── credentials.json              # Google OAuth 인증정보           │
+     │ (gitignored)                                                            │
+     │ ├── chapters/                                                           │
+     │ │   ├── 01-introduction/                                                │
+     │ │   │   ├── 01-overview.md                                              │
+     │ │   │   └── 02-background.md                                            │
+     │ │   └── 02-main-topic/                                                  │
+     │ │       ├── 01-theory.md                                                │
+     │ │       └── 02-practice.md                                              │
+     │ ├── images/                                                             │
+     │ └── .gitignore                                                          │
+     │                                                                         │
+     │ CLI 명령어                                                              │
+     │                                                                         │
+     │                                                                         │
+     │ 명령어: bookbook init                                                   │
+     │ 설명: 새 책 프로젝트 스캐폴딩                                           │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook auth                                                   │
+     │ 설명: Google OAuth2 인증                                                │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook publish [--chapter CH] [--dry-run]                     │
+     │ 설명: markdown → 새 Google Docs 생성                                    │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook pull [--section SEC] [--doc-id ID]                     │
+     │ 설명: Google Docs 코멘트 → GitHub Issues (기본: 최신 문서)              │
+     │ ────────────────────────────────────────                                │
+     │ 명령어: bookbook status                                                 │
+     │ 설명: 출판 이력, 미처리 코멘트 수 표시                                  │
+     │ 핵심 설계 결정                                                          │
+     │                                                                         │
+     │ 1. Publish 전략: 매번 새 문서 생성                                      │
+     │                                                                         │
+     │ - bookbook publish 실행 시 새로운 Google Docs 문서 생성                 │
+     │ - 문서 제목 형식: {책제목} v{순번} {날짜} {git short hash}              │
+     │   - 예: Healthcare AI v003 2026-02-05 a1b2c3d                           │
+     │   - 순번(v001, v002...)은 publish_history에서 자동 증가 → Agent가 최신  │
+     │ 문서를 즉시 식별                                                        │
+     │ - Google Drive 폴더에 정리 (book.yaml의 google.drive_folder_id)         │
+     │ - 이전 출판본은 보존됨 → 버전 히스토리 자연스럽게 관리                  │
+     │ - Drive 폴더 내 문서 목록을 modifiedTime 정렬로 조회 가능 → 최신 문서   │
+     │ 탐색 용이                                                               │
+     │                                                                         │
+     │ 2. 마크다운 → Google Docs 포맷 매핑 (v1과 동일)                         │
+     │ ┌──────────────┬───────────────────────────────────────────────────────┐│
+     │ │   Markdown   │                      Google Docs                      ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ # Heading    │ updateParagraphStyle → HEADING_1                      ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ **bold**     │ updateTextStyle → bold: true                          ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ *italic*     │ updateTextStyle → italic: true                        ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ `code`       │ updateTextStyle → fontFamily: "Courier New"           ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ [link](url)  │ updateTextStyle → link: {url}                         ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ - item       │ createParagraphBullets → BULLET_DISC_CIRCLE_SQUARE    ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ 1. item      │ createParagraphBullets → NUMBERED_DECIMAL_ALPHA_ROMAN ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ ![alt](path) │ 이미지를 Drive 업로드 후 insertInlineImage            ││
+     │ ├──────────────┼───────────────────────────────────────────────────────┤│
+     │ │ 코드 블록    │ 단일 셀 테이블 + 모노스페이스 폰트                    ││
+     │ └──────────────┴───────────────────────────────────────────────────────┘│
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │ 3. Pull 전략: 코멘트 → GitHub Issues                                    │
+     │                                                                         │
+     │ - 기본 대상: --doc-id 미지정 시 최신 출판 문서를 자동 선택              │
+     │   - publish_history.json에서 가장 최근 항목의 google_doc_id 사용        │
+     │   - 또는 Drive 폴더에서 제목의 v{순번}이 가장 높은 문서 탐색            │
+     │ - 섹션별 pull: --section "01-introduction" 으로 특정 챕터/섹션의        │
+     │ 코멘트만 필터링                                                         │
+     │   - Docs 내 Heading 구조를 파싱하여 섹션 경계 파악                      │
+     │   - 코멘트의 quotedFileContent가 해당 섹션 범위 내에 있는지 확인        │
+     │ - Google Docs API로 코멘트(comments) 및 제안(suggestions) 읽기          │
+     │ - 각 코멘트를 GitHub Issue로 변환:                                      │
+     │   - 제목: [Ch01/Sec02] 코멘트 요약 (heading 기반 위치)                  │
+     │   - 본문: 코멘트 내용 + 인용된 원문 + Docs 링크 + 소스 파일 경로        │
+     │   - 라벨: book-review, chapter:01-introduction 등                       │
+     │ - 이미 Issue로 변환된 코멘트는 중복 생성하지 않음 (comment ID를         │
+     │ publish_history에 기록)                                                 │
+     │ - AI Agent가 Issue를 보고 markdown 수정 → PR 생성                       │
+     │                                                                         │
+     │ 4. 이미지 처리 (Publish 방향만)                                         │
+     │                                                                         │
+     │ - Publish: 로컬 이미지 → Google Drive 업로드 (공개 링크) → Docs에 삽입  │
+     │ - Pull에서 이미지 다운로드는 불필요 (코멘트만 가져오므로)               │
+     │                                                                         │
+     │ 5. 섹션 위치 감지 (Heading 기반)                                        │
+     │                                                                         │
+     │ - Publish 시 각 markdown 파일의 시작 위치(heading)를 Docs 문서 내       │
+     │ 인덱스와 매핑하여 기록                                                  │
+     │ - Google Docs의 코멘트에는 quotedFileContent (인용 텍스트) + anchor 위치│
+     │  정보 포함                                                              │
+     │ - 인용 텍스트 + 위치를 markdown 파일에서 검색 → 어느 챕터/섹션인지 매핑 │
+     │ - Heading 구조를 활용하여 Chapter 01 > Section 02 형태로 Issue에 위치   │
+     │ 표시                                                                    │
+     │ - 이를 통해 --section 필터링과 Issue의 소스 파일 경로 지정이 가능       │
+     │                                                                         │
+     │ 6. Google API 스코프                                                    │
+     │                                                                         │
+     │ - Google Docs API (documents.readonly, documents): 문서 생성,           │
+     │ batchUpdate, 내용 읽기                                                  │
+     │ - Google Drive API (drive.file): 이미지 업로드, 폴더 내 문서 목록 조회, │
+     │ 최신 문서 탐색                                                          │
+     │ - Google Drive Comments: Drive API의 comments 엔드포인트로 코멘트 조회  │
+     │   - drive.comments.list(fileId) → 코멘트 목록 + quotedFileContent +     │
+     │ anchor                                                                  │
+     │                                                                         │
+     │ 출판 이력 파일 (.bookbook/publish_history.json)                         │
+     │                                                                         │
+     │ {                                                                       │
+     │   "version": 1,                                                         │
+     │   "publications": [                                                     │
+     │     {                                                                   │
+     │       "google_doc_id": "1aBcDeFg...",                                   │
+     │       "google_doc_url":                                                 │
+     │ "https://docs.google.com/document/d/1aBcDeFg.../edit",                  │
+     │       "published_at": "2026-02-05T10:00:00Z",                           │
+     │       "git_commit_hash": "a1b2c3d",                                     │
+     │       "git_branch": "main",                                             │
+     │       "title": "Healthcare AI - 2026-02-05 - a1b2c3d",                  │
+     │       "chapters_included": ["01-introduction", "02-main-topic"],        │
+     │       "pulled_comments": ["comment_id_1", "comment_id_2"]               │
+     │     }                                                                   │
+     │   ]                                                                     │
+     │ }                                                                       │
+     │                                                                         │
+     │ book.yaml 설정 예시                                                     │
+     │                                                                         │
+     │ book:                                                                   │
+     │   title: "소비자를 위한 헬스케어 AI"                                    │
+     │   authors:                                                              │
+     │     - name: "Author Name"                                               │
+     │       email: "author@example.com"                                       │
+     │                                                                         │
+     │ google:                                                                 │
+     │   drive_folder_id: "1xYz..."         # 출판물이 저장될 Drive 폴더       │
+     │   client_secrets_file: "client_secret.json"  # OAuth client secret      │
+     │                                                                         │
+     │ github:                                                                 │
+     │   repo: "modocai/Book_HealthcareAI_for_Consumer"                        │
+     │   labels:                                                               │
+     │     - "book-review"                                                     │
+     │                                                                         │
+     │ 의존성 (pyproject.toml)                                                 │
+     │                                                                         │
+     │ typer[all]                    # CLI 프레임워크                          │
+     │ pydantic >= 2.0               # 데이터 모델                             │
+     │ mistune >= 3.0                # 마크다운 파서                           │
+     │ google-api-python-client      # Google Docs/Drive API                   │
+     │ google-auth-httplib2          # Google 인증                             │
+     │ google-auth-oauthlib          # OAuth2 플로우                           │
+     │ python-frontmatter            # 마크다운 프론트매터                     │
+     │ PyGithub                      # GitHub Issue 생성                       │
+     │ pyyaml                        # book.yaml 파싱                          │
+     │                                                                         │
+     │ 구현 순서                                                               │
+     │                                                                         │
+     │ Phase 0: Git 초기화 ✅ 완료                                             │
+     │                                                                         │
+     │ - git init → remote 추가 → .gitignore → 초기 커밋 → push                │
+     │                                                                         │
+     │ Phase 1: 기반 구축                                                      │
+     │                                                                         │
+     │ 1. pyproject.toml, 패키지 구조 생성                                     │
+     │ 2. models.py — Pydantic 모델 (BookConfig, PublishRecord, CommentInfo)   │
+     │ 3. config.py — book.yaml 로드/검증                                      │
+     │ 4. cli.py — Typer CLI 뼈대 + bookbook init                              │
+     │ 5. book/init.py — 프로젝트 스캐폴딩                                     │
+     │ 6. book/scanner.py — 챕터/섹션 파일 탐색                                │
+     │                                                                         │
+     │ Phase 2: Google API 연동                                                │
+     │                                                                         │
+     │ 7. google/auth.py — OAuth2 인증 플로우                                  │
+     │ 8. google/docs_client.py — Docs API (create, batchUpdate, get comments) │
+     │ 9. google/drive_client.py — Drive API (이미지 업로드, 폴더 관리)        │
+     │ 10. bookbook auth CLI 명령 구현                                         │
+     │                                                                         │
+     │ Phase 3: 변환기 + Publish                                               │
+     │                                                                         │
+     │ 11. converter/elements.py — 중간 표현 데이터클래스                      │
+     │ 12. converter/md_to_docs.py — 마크다운 → Docs 요청 변환                 │
+     │ 13. converter/image_handler.py — 이미지 업로드                          │
+     │ 14. publish/publisher.py — 새 Google Docs 생성 (전체 파이프라인)        │
+     │ 15. publish/history.py — 출판 이력 관리                                 │
+     │ 16. bookbook publish CLI 명령 구현                                      │
+     │                                                                         │
+     │ Phase 4: Pull (코멘트 → Issues)                                         │
+     │                                                                         │
+     │ 17. pull/comments.py — Google Docs 코멘트/제안 읽기 + 섹션 위치 매핑    │
+     │ 18. pull/issues.py — 코멘트 → GitHub Issue 변환/생성                    │
+     │ 19. bookbook pull CLI 명령 구현                                         │
+     │ 20. bookbook status CLI 명령 구현                                       │
+     │                                                                         │
+     │ Phase 5: 테스트 및 마무리                                               │
+     │                                                                         │
+     │ 21. 단위 테스트 (converter, publish, pull 모듈)                         │
+     │ 22. AGENTS.md 작성 (AI Agent가 Issue → markdown 수정할 때 참고할 가이드)│
+     │                                                                         │
+     │ 검증 방법                                                               │
+     │                                                                         │
+     │ 1. bookbook init으로 프로젝트 생성 → 디렉토리 구조 확인                 │
+     │ 2. bookbook auth로 Google 인증 → 토큰 저장 확인                         │
+     │ 3. 샘플 마크다운 작성 후 bookbook publish → 새 Google Docs에서 서식 확인│
+     │ 4. Google Docs에서 코멘트 작성 후 bookbook pull → GitHub Issue 생성 확인│
+     │ 5. bookbook status → 출판 이력 + 미처리 코멘트 표시 확인                │
+     │ 6. pytest 전체 테스트 통과 확인                                         │
+     │                                                                         │
+     │ 주요 파일                                                               │
+     │                                                                         │
+     │ - /Users/mckim/projects/bookbook/pyproject.toml (신규)                  │
+     │ - /Users/mckim/projects/bookbook/src/bookbook/ (전체 패키지, 신규)      │
+     │ - /Users/mckim/projects/bookbook/tests/ (테스트, 신규)                  │
+     │ - /Users/mckim/projects/bookbook/AGENTS.md (기존, 내용 작성)            │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     │                                                                         │
+     ╰─────────────────────────────────────────────────────────────────────────╯
