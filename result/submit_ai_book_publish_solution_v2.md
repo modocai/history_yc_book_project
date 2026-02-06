@@ -150,7 +150,6 @@ Evidence:
 - Core source (KO build transcript): https://github.com/modocai/history_yc_book_project/blob/main/result/2026-02-05-bookbook-gitnative-copilot.txt.txt
 - Core source (Codex readable transcript): https://github.com/modocai/history_yc_book_project/blob/main/result/codex_transcript_2026-02-05T19-05-49_readable.txt
 - Core source (StyleTemplate loop): https://github.com/modocai/history_yc_book_project/blob/main/2026-02-06-styletemplate-test.txt
-- Previous submit doc (for comparison): https://github.com/modocai/history_yc_book_project/blob/main/result/yc_submission_s2026_ai_build_transcript.md
 
 Private repository (reference only):
 - https://github.com/modocai/Book_HealthcareAI_for_Consumer (private)
