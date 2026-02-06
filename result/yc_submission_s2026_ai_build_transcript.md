@@ -6,6 +6,11 @@ This file is an edited/merged transcript focused on how I used AI to **plan, des
 - Secondary source (tool-level orchestration evidence): `result/codex_transcript_2026-02-05T19-05-49_with_tools.txt`
 - Product/repo context: `modocai/Book_HealthcareAI_for_Consumer` (bookbook)
 
+## Repository Links
+
+- Submission transcript repo: https://github.com/modocai/history_yc_book_project
+- Product code repo (bookbook): https://github.com/modocai/Book_HealthcareAI_for_Consumer
+
 ## 1) Planning and Initial Architecture
 
 ```text
@@ -907,4 +912,3 @@ Output:
 - `result/2026-02-05-bookbook-gitnative-copilot.txt.txt`
 - `result/codex_transcript_2026-02-05T19-05-49_with_tools.txt`
 - `result/codex_transcript_2026-02-05T19-05-49_readable.txt`
-
