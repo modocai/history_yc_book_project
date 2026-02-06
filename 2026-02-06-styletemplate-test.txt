@@ -1,0 +1,1862 @@
+
+ ▐▛███▜▌   Claude Code v2.1.32
+▝▜█████▛▘  Opus 4.6 · Claude Team
+  ▘▘ ▝▝    ~/projects/bookbook
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ StyleTemplate 서식 매칭 — 반복 테스트 계획                                   │
+│                                                                              │
+│ 목표                                                                         │
+│                                                                              │
+│ StyleTemplate.docx 콘텐츠를 마크다운 테스트 파일로 변환 → book publish 로    │
+│ Google Doc 생성 → 원본과 비교 → 차이 수정 반복                               │
+│                                                                              │
+│ 현재 상태 (원본 vs 퍼블리시 결과 차이점)                                     │
+│ ┌─────────────────┬───────────────────────────────┬─────────────────┬─────── │
+│ ─┐                                                                           │
+│ │      요소       │     원본 (StyleTemplate)      │    현재 출력    │ 수정   │
+│  │                                                                           │
+│ │                 │                               │                 │  필요  │
+│  │                                                                           │
+│ ├─────────────────┼───────────────────────────────┼─────────────────┼─────── │
+│ ─┤                                                                           │
+│ │ Thematic break  │ "— ✦ —" 중앙정렬, Georgia     │ "───────"       │ ✓      │
+│  │                                                                           │
+│ │                 │ Italic 11pt #888888           │ 중앙정렬        │        │
+│  │                                                                           │
+│ ├─────────────────┼───────────────────────────────┼─────────────────┼─────── │
+│ ─┤                                                                           │
+│ │ 본문 색상       │ Georgia 11.5pt #444444        │ Georgia 11.5pt  │ ✓      │
+│  │                                                                           │
+│ │                 │                               │ (검정)          │        │
+│  │                                                                           │
+│ ├─────────────────┼───────────────────────────────┼─────────────────┼─────── │
+│ ─┤                                                                           │
+│ │ 본문 줄간격     │ 1.333 (133%)                  │ 1.0 (100%)      │ ✓      │
+│  │                                                                           │
+│ ├─────────────────┼───────────────────────────────┼─────────────────┼─────── │
+│ ─┤                                                                           │
+│ │ 본문 paragraph  │ spaceAfter 10pt               │ 없음            │ ✓      │
+│  │                                                                           │
+│ │ 간격            │                               │                 │        │
+│  │                                                                           │
+│ ├─────────────────┼───────────────────────────────┼─────────────────┼─────── │
+│ ─┤                                                                           │
+│ │ Heading named   │ 템플릿에서 상속됨 ✓           │ 상속됨 ✓        │ —      │
+│  │                                                                           │
+│ │ styles          │                               │                 │        │
+│  │                                                                           │
+│ ├─────────────────┼───────────────────────────────┼─────────────────┼─────── │
+│ ─┤                                                                           │
+│ │ Bold/Italic     │ 정상                          │ 정상            │ —      │
+│  │                                                                           │
+│ ├─────────────────┼───────────────────────────────┼─────────────────┼─────── │
+│ ─┤                                                                           │
+│ │ Code block      │ Courier New 9pt in table      │ 동일            │ —      │
+│  │                                                                           │
+│ ├─────────────────┼───────────────────────────────┼─────────────────┼─────── │
+│ ─┤                                                                           │
+│ │ Blockquote      │ 들여쓰기 + 스타일             │ 완전 누락       │ ✓      │
+│  │                                                                           │
+│ │                 │                               │ (파서가 무시)   │        │
+│  │                                                                           │
+│ └─────────────────┴───────────────────────────────┴─────────────────┴─────── │
+│ ─┘                                                                           │
+│ 단계                                                                         │
+│                                                                              │
+│ Step 1: 테스트 마크다운 파일 생성                                            │
+│                                                                              │
+│ tests/fixtures/style_test.md — StyleTemplate.docx의 Chapter 1 콘텐츠를       │
+│ 마크다운으로 역변환                                                          │
+│                                                                              │
+│ 포함할 요소:                                                                 │
+│ - # H1 (Part 제목)                                                           │
+│ - ## H2 (Section 제목: "The Day the Recipe Changed" 등)                      │
+│ - ### H3 ("Coming Up Next")                                                  │
+│ - 본문 paragraphs (bold, italic 포함)                                        │
+│ - --- thematic break                                                         │
+│ - > blockquote (epigraph용)                                                  │
+│ - Ordered & unordered lists                                                  │
+│ - Code block                                                                 │
+│                                                                              │
+│ Step 2: 테스트 스크립트 생성                                                 │
+│                                                                              │
+│ tests/test_style_publish.py — 단일 마크다운 파일을 Google Doc으로            │
+│ 퍼블리시하고 URL 출력                                                        │
+│                                                                              │
+│ # 핵심 흐름:                                                                 │
+│ # 1. template copy → clear body → insert content                             │
+│ # 2. 결과 URL 출력 (사용자가 원본과 비교)                                    │
+│ # 3. 나중에: API로 스타일 속성 자동 비교 추가 가능                           │
+│                                                                              │
+│ Step 3: 차이점 수정 (우선순위 순)                                            │
+│                                                                              │
+│ 3a. Thematic break 수정                                                      │
+│                                                                              │
+│ 파일: src/bookbook/converter/md_to_docs.py (_emit_thematic_break)            │
+│                                                                              │
+│ 변경:                                                                        │
+│ # Before:                                                                    │
+│ rule_text = "───────────────────────────────────────"                        │
+│                                                                              │
+│ # After:                                                                     │
+│ rule_text = "— ✦ —"                                                          │
+│ # + updateTextStyle: Georgia Italic 11pt #888888                             │
+│ # + updateParagraphStyle: CENTER, spaceAbove 20pt, spaceBelow 20pt           │
+│                                                                              │
+│ 3b. 본문 paragraph 스타일 보강                                               │
+│                                                                              │
+│ 파일: src/bookbook/converter/md_to_docs.py (_emit_paragraph)                 │
+│                                                                              │
+│ 현재는 namedStyleType: NORMAL_TEXT만 설정.                                   │
+│ 추가할 것:                                                                   │
+│ # 1. updateTextStyle: foregroundColor #444444                                │
+│ #    fields: "foregroundColor"                                               │
+│ #    range: 전체 paragraph                                                   │
+│ #    (bold/italic/code 개별 run 스타일은 이후에 적용되므로 충돌 없음)        │
+│                                                                              │
+│ # 2. updateParagraphStyle 확장:                                              │
+│ #    lineSpacing: 133, spaceBelow: 10pt                                      │
+│ #    fields: "namedStyleType,lineSpacing,spaceBelow"                         │
+│                                                                              │
+│ 주의: updateTextStyle for foregroundColor를 paragraph 전체에 먼저 적용하고,  │
+│ 개별 run의 bold/italic/code 스타일이 그 위에 오버라이드됨.                   │
+│ code span의 font override (Courier New)는 foregroundColor와 다른 필드이므로  │
+│ 충돌 없음.                                                                   │
+│                                                                              │
+│ 3c. Heading paragraph 스타일 보강                                            │
+│                                                                              │
+│ 파일: src/bookbook/converter/md_to_docs.py (_emit_heading)                   │
+│                                                                              │
+│ Named style에서 spacing이 이미 상속되지만, 색상이 누락될 수 있음.            │
+│ 테스트 후 필요하면 heading에도 foregroundColor 명시 적용.                    │
+│                                                                              │
+│ 3d. Blockquote 지원 추가                                                     │
+│                                                                              │
+│ 파일들:                                                                      │
+│ - src/bookbook/converter/elements.py — BlockQuote dataclass 추가             │
+│ - src/bookbook/converter/md_to_docs.py:                                      │
+│   - _convert_token: block_quote 타입 처리 추가                               │
+│   - _emit_block_quote: 들여쓰기 + italic + #666666 스타일                    │
+│                                                                              │
+│ # elements.py                                                                │
+│ @dataclass                                                                   │
+│ class BlockQuote:                                                            │
+│     """A blockquote containing paragraphs."""                                │
+│     children: list[Element] = field(default_factory=list)                    │
+│                                                                              │
+│ # md_to_docs.py - rendering                                                  │
+│ # 1. insertText로 내용 삽입                                                  │
+│ # 2. updateParagraphStyle: indentStart 36pt (0.5in)                          │
+│ # 3. updateTextStyle: italic, foregroundColor #666666                        │
+│                                                                              │
+│ Step 4: 반복 비교                                                            │
+│                                                                              │
+│ 1. 테스트 스크립트 실행 → Google Doc URL                                     │
+│ 2. 원본 StyleTemplate과 나란히 비교                                          │
+│ 3. 차이점 발견 → 코드 수정 → 다시 실행                                       │
+│ 4. 완전히 일치할 때까지 반복                                                 │
+│                                                                              │
+│ 수정 대상 파일 목록                                                          │
+│ 파일: src/bookbook/converter/elements.py                                     │
+│ 변경: BlockQuote 추가, Element union에 포함                                  │
+│ ────────────────────────────────────────                                     │
+│ 파일: src/bookbook/converter/md_to_docs.py                                   │
+│ 변경: thematic break, paragraph style, blockquote                            │
+│ ────────────────────────────────────────                                     │
+│ 파일: tests/fixtures/style_test.md                                           │
+│ 변경: 신규 — 테스트 마크다운                                                 │
+│ ────────────────────────────────────────                                     │
+│ 파일: tests/test_style_publish.py                                            │
+│ 변경: 신규 — 비교 테스트 스크립트                                            │
+│ 검증                                                                         │
+│                                                                              │
+│ 1. uv run pytest — 기존 151 테스트 통과 확인                                 │
+│ 2. 테스트 스크립트로 Google Doc 생성 → 원본과 시각적 비교                    │
+│ 3. 필요시: Google Docs API로 생성된 문서의 named styles / paragraph styles를 │
+│  자동 검증                                                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⏺ I'll start by reading the relevant source files to understand the current code
+   structure, then implement the changes.
+
+⏺ Searched for 1 pattern, read 2 files (ctrl+o to expand)
+
+⏺ Now let me also look at the styles.py file and the existing test structure.
+
+⏺ Searched for 2 patterns, read 1 file (ctrl+o to expand)
+
+⏺ Let me also check the existing tests and publisher for context.
+
+⏺ Read 3 files (ctrl+o to expand)
+
+⏺ Let me also read the conftest.py to see the sample_markdown fixture.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now I have a full picture. Let me create the task list and start implementing.
+
+⏺ Step 1: Create test markdown fixture
+
+⏺ Bash(mkdir -p /Users/mckim/projects/bookbook/tests/fixtures)
+  ⎿  (No content)
+
+⏺ Write(tests/fixtures/style_test.md)
+  ⎿  Wrote 45 lines to tests/fixtures/style_test.md
+      1 # Part 1 — Understanding AI in Healthcare
+      2 
+      3 > *"The best time to learn about AI in healthcare was yesterday. 
+        The second best time is now."*
+      4 
+      5 ## Chapter 1: The Day the Recipe Changed
+      6 
+      7 Imagine you've been following the same recipe for years — the one
+         your grandmother taught you, the one that always turned out perf
+        ectly. Then one day, someone hands you a new cookbook. It's full 
+        of unfamiliar ingredients and techniques. That's what **artificia
+        l intelligence** feels like to many people when they first encoun
+        ter it in healthcare.
+      8 
+      9 But here's the thing: AI isn't replacing your grandmother's recip
+        e. It's more like having a **sous chef** who can help you prep fa
+        ster, catch mistakes you might miss, and suggest variations you'd
+         never have thought of. The *fundamental principles* of good cook
+        ing — and good medicine — remain the same.
+     … +35 lines (ctrl+o to expand)
+
+⏺ Step 2: Add BlockQuote to elements.py
+
+⏺ Update(src/bookbook/converter/elements.py)
+  ⎿  Added 8 lines, removed 1 line
+      100      pass
+      101  
+      102  
+      103 +@dataclass                                                    
+      104 +class BlockQuote:                                             
+      105 +    """A blockquote containing paragraphs."""                 
+      106 +                                                              
+      107 +    children: list[Element] = field(default_factory=list)     
+      108 +                                                              
+      109 +                                                              
+      110  # Union type for all elements
+      104 -Element = Heading | Paragraph | ListBlock | CodeBlock | Image 
+          -| ThematicBreak                                               
+      111 +Element = Heading | Paragraph | ListBlock | CodeBlock | Image 
+          +| ThematicBreak | BlockQuote                                  
+
+⏺ Step 3: Fix thematic break + Add paragraph styling + Add blockquote support 
+  (all in md_to_docs.py)
+
+  I'll make all the changes to md_to_docs.py together since they're in the same
+  file.
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 1 line
+      10  import mistune
+      11  
+      12  from bookbook.converter.elements import (
+      13 +    BlockQuote,                                                
+      14      CodeBlock,
+      15      Element,
+      16      Heading,
+
+⏺ Now add block_quote handling in _convert_token:
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 4 lines
+       96      if t == "thematic_break":
+       97          return ThematicBreak()
+       98  
+       99 +    if t == "block_quote":                                    
+      100 +        inner = _convert_tokens(token.get("children", []))    
+      101 +        return BlockQuote(children=inner)                     
+      102 +                                                              
+      103      if t == "blank_line":
+      104          return None
+      105  
+
+⏺ Now add BlockQuote handling in elements_to_requests:
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 2 lines
+      273              index = _emit_image(element, index, requests)
+      274          elif isinstance(element, ThematicBreak):
+      275              index = _emit_thematic_break(index, requests)
+      276 +        elif isinstance(element, BlockQuote):                 
+      277 +            index = _emit_block_quote(element, index, requests
+          +)                                                             
+      278  
+      279      return requests, index
+      280  
+
+⏺ Now fix the thematic break:
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 33 lines, removed 2 lines
+      563      requests: list[dict[str, Any]],
+      564  ) -> int:
+      565      """Emit a horizontal rule as a styled paragraph. Returns t
+           he new index."""
+      566 -    rule_text = "───────────────────────────────────────"     
+      566 +    rule_text = "— ✦ —"                                       
+      567      requests.append({
+      568          "insertText": {
+      569              "location": {"index": start_index},
+     ...
+      572      })
+      573      end_index = start_index + len(rule_text) + 1
+      574  
+      575 +    # Paragraph style: centered with spacing                  
+      576      requests.append({
+      577          "updateParagraphStyle": {
+      578              "range": {
+     ...
+      581              },
+      582              "paragraphStyle": {
+      583                  "alignment": "CENTER",
+      584 +                "spaceAbove": {"magnitude": 20, "unit": "PT"},
+      585 +                "spaceBelow": {"magnitude": 20, "unit": "PT"},
+      586              },
+      584 -            "fields": "alignment",                            
+      587 +            "fields": "alignment,spaceAbove,spaceBelow",      
+      588          }
+      589      })
+      590  
+      591 +    # Text style: Georgia Italic 11pt #888888                 
+      592 +    requests.append({                                         
+      593 +        "updateTextStyle": {                                  
+      594 +            "range": {                                        
+      595 +                "startIndex": start_index,                    
+      596 +                "endIndex": start_index + len(rule_text),     
+      597 +            },                                                
+      598 +            "textStyle": {                                    
+      599 +                "italic": True,                               
+      600 +                "weightedFontFamily": {                       
+      601 +                    "fontFamily": "Georgia",                  
+      602 +                    "weight": 400,                            
+      603 +                },                                            
+      604 +                "fontSize": {"magnitude": 11, "unit": "PT"},  
+      605 +                "foregroundColor": {                          
+      606 +                    "color": {                                
+      607 +                        "rgbColor": {                         
+      608 +                            "red": 0x88 / 255,                
+      609 +                            "green": 0x88 / 255,              
+      610 +                            "blue": 0x88 / 255,               
+      611 +                        }                                     
+      612 +                    }                                         
+      613 +                },                                            
+      614 +            },                                                
+      615 +            "fields": "italic,weightedFontFamily,fontSize,fore
+          +groundColor",                                                 
+      616 +        }                                                     
+      617 +    })                                                        
+      618 +                                                              
+      619      return end_index
+
+⏺ Now fix the paragraph styling (foregroundColor, lineSpacing, spaceBelow):
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 29 lines, removed 3 lines
+      392          }
+      393      })
+      394  
+      395 -    # Explicitly set NORMAL_TEXT to prevent inheriting heading
+          - styles                                                       
+      395 +    # Paragraph style: NORMAL_TEXT + line spacing 133% + space
+          +Below 10pt                                                    
+      396      requests.append({
+      397          "updateParagraphStyle": {
+      398              "range": {
+      399                  "startIndex": start_index,
+      400                  "endIndex": index + 1,
+      401              },
+      402 -            "paragraphStyle": {"namedStyleType": "NORMAL_TEXT"
+          -},                                                            
+      403 -            "fields": "namedStyleType",                       
+      402 +            "paragraphStyle": {                               
+      403 +                "namedStyleType": "NORMAL_TEXT",              
+      404 +                "lineSpacing": 133,                           
+      405 +                "spaceBelow": {"magnitude": 10, "unit": "PT"},
+      406 +            },                                                
+      407 +            "fields": "namedStyleType,lineSpacing,spaceBelow",
+      408          }
+      409      })
+      410  
+      411 +    # Body text color: #444444 applied to whole paragraph text
+          + range                                                        
+      412 +    requests.append({                                         
+      413 +        "updateTextStyle": {                                  
+      414 +            "range": {                                        
+      415 +                "startIndex": start_index,                    
+      416 +                "endIndex": index,                            
+      417 +            },                                                
+      418 +            "textStyle": {                                    
+      419 +                "foregroundColor": {                          
+      420 +                    "color": {                                
+      421 +                        "rgbColor": {                         
+      422 +                            "red": 0x44 / 255,                
+      423 +                            "green": 0x44 / 255,              
+      424 +                            "blue": 0x44 / 255,               
+      425 +                        }                                     
+      426 +                    }                                         
+      427 +                },                                            
+      428 +            },                                                
+      429 +            "fields": "foregroundColor",                      
+      430 +        }                                                     
+      431 +    })                                                        
+      432 +                                                              
+      433      return index + 1
+      434  
+      435  
+
+⏺ Now add the _emit_block_quote function at the end of the file:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 76 lines
+      643      })
+      644  
+      645      return end_index
+      646 +                                                              
+      647 +                                                              
+      648 +def _emit_block_quote(                                        
+      649 +    block_quote: BlockQuote,                                  
+      650 +    start_index: int,                                         
+      651 +    requests: list[dict[str, Any]],                           
+      652 +) -> int:                                                     
+      653 +    """Emit a blockquote with indentation and italic styling. 
+          +Returns the new index."""                                     
+      654 +    index = start_index                                       
+      655 +                                                              
+      656 +    for child in block_quote.children:                        
+      657 +        child_start = index                                   
+      658 +                                                              
+      659 +        if isinstance(child, Paragraph):                      
+      660 +            # Emit the text runs                              
+      661 +            index = _emit_text_runs(child.runs, index, request
+          +s)                                                            
+      662 +                                                              
+      663 +            # Insert newline                                  
+      664 +            requests.append({                                 
+      665 +                "insertText": {                               
+      666 +                    "location": {"index": index},             
+      667 +                    "text": "\n",                             
+      668 +                }                                             
+      669 +            })                                                
+      670 +                                                              
+      671 +            # Paragraph style: indented, with line spacing    
+      672 +            requests.append({                                 
+      673 +                "updateParagraphStyle": {                     
+      674 +                    "range": {                                
+      675 +                        "startIndex": child_start,            
+      676 +                        "endIndex": index + 1,                
+      677 +                    },                                        
+      678 +                    "paragraphStyle": {                       
+      679 +                        "namedStyleType": "NORMAL_TEXT",      
+      680 +                        "indentStart": {"magnitude": 36, "unit
+          +": "PT"},                                                     
+      681 +                        "lineSpacing": 133,                   
+      682 +                        "spaceBelow": {"magnitude": 10, "unit"
+          +: "PT"},                                                      
+      683 +                    },                                        
+      684 +                    "fields": "namedStyleType,indentStart,line
+          +Spacing,spaceBelow",                                          
+      685 +                }                                             
+      686 +            })                                                
+      687 +                                                              
+      688 +            # Text style: italic + #666666                    
+      689 +            requests.append({                                 
+      690 +                "updateTextStyle": {                          
+      691 +                    "range": {                                
+      692 +                        "startIndex": child_start,            
+      693 +                        "endIndex": index,                    
+      694 +                    },                                        
+      695 +                    "textStyle": {                            
+      696 +                        "italic": True,                       
+      697 +                        "foregroundColor": {                  
+      698 +                            "color": {                        
+      699 +                                "rgbColor": {                 
+      700 +                                    "red": 0x66 / 255,        
+      701 +                                    "green": 0x66 / 255,      
+      702 +                                    "blue": 0x66 / 255,       
+      703 +                                }                             
+      704 +                            }                                 
+      705 +                        },                                    
+      706 +                    },                                        
+      707 +                    "fields": "italic,foregroundColor",       
+      708 +                }                                             
+      709 +            })                                                
+      710 +                                                              
+      711 +            index += 1  # past the newline                    
+      712 +        else:                                                 
+      713 +            # For non-paragraph children (headings, lists, etc
+          +.), emit normally                                             
+      714 +            if isinstance(child, Heading):                    
+      715 +                index = _emit_heading(child, index, requests) 
+      716 +            elif isinstance(child, ListBlock):                
+      717 +                index = _emit_list(child, index, requests)    
+      718 +            elif isinstance(child, CodeBlock):                
+      719 +                index = _emit_code_block(child, index, request
+          +s)                                                            
+      720 +                                                              
+      721 +    return index                                              
+
+⏺ Step 4: Create test_style_publish.py
+
+⏺ Write(tests/test_style_publish.py)
+  ⎿  Wrote 83 lines to tests/test_style_publish.py
+       1 """Visual comparison test: publish style_test.md to Google Doc.
+       2 
+       3 Usage:
+       4     uv run pytest tests/test_style_publish.py -s
+       5 
+       6 This creates a new Google Doc from the style test markdown and p
+         rints the URL.
+       7 Compare the output visually against the StyleTemplate.docx origi
+         nal.
+       8 
+       9 Requires:
+      10     - Google OAuth credentials (run `book auth` first)
+     … +73 lines (ctrl+o to expand)
+
+⏺ Step 5: Update existing tests and run the full suite
+
+  The thematic break test needs updating since we changed the rule text. Let me
+  also check if blockquote parsing tests are needed.
+
+⏺ Update(tests/test_converter/test_md_to_docs.py)
+  ⎿  Added 1 line
+      3  from __future__ import annotations
+      4  
+      5  from bookbook.converter.elements import (
+      6 +    BlockQuote,                                                 
+      7      CodeBlock,
+      8      Heading,
+      9      HeadingLevel,
+
+⏺ Now fix the thematic break test — it currently checks for ─── which we changed
+   to — ✦ —:
+
+⏺ Update(tests/test_converter/test_md_to_docs.py)
+  ⎿  Added 16 lines, removed 2 lines
+      325  
+      326          insert_texts = [r for r in requests if "insertText" in
+            r]
+      327          assert len(insert_texts) >= 1
+      328 -        # Should contain the rule character                   
+      329 -        assert any("───" in r["insertText"]["text"] for r in i
+          -nsert_texts)                                                  
+      328 +        # Should contain the decorative break text            
+      329 +        assert any("— ✦ —" in r["insertText"]["text"] for r in
+          + insert_texts)                                                
+      330  
+      331          para_styles = [r for r in requests if "updateParagraph
+           Style" in r]
+      332          assert para_styles[0]["updateParagraphStyle"]["paragra
+           phStyle"]["alignment"] == "CENTER"
+      333 +        # Should have spacing                                 
+      334 +        assert para_styles[0]["updateParagraphStyle"]["paragra
+          +phStyle"]["spaceAbove"]["magnitude"] == 20                    
+      335 +        assert para_styles[0]["updateParagraphStyle"]["paragra
+          +phStyle"]["spaceBelow"]["magnitude"] == 20                    
+      336  
+      337 +    def test_thematic_break_text_style(self):                 
+      338 +        elements = [ThematicBreak()]                          
+      339 +        requests, _ = elements_to_requests(elements)          
+      340  
+      341 +        text_styles = [r for r in requests if "updateTextStyle
+          +" in r]                                                       
+      342 +        assert len(text_styles) >= 1                          
+      343 +        ts = text_styles[0]["updateTextStyle"]["textStyle"]   
+      344 +        assert ts["italic"] is True                           
+      345 +        assert ts["weightedFontFamily"]["fontFamily"] == "Geor
+          +gia"                                                          
+      346 +        assert ts["fontSize"]["magnitude"] == 11              
+      347 +                                                              
+      348 +                                                              
+      349  class TestElementsToRequestsIndexTracking:
+      350      def test_indices_increase_monotonically(self):
+      351          """All insertText locations should be at increasing in
+           dices."""
+
+⏺ Now add blockquote parsing and rendering tests, plus a paragraph styling test.
+   Let me append them at the end of the file:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(tests/test_converter/test_md_to_docs.py)
+  ⎿  Added 89 lines
+      373          assert first_insert["insertText"]["location"]["index"]
+            == 1
+      374  
+      375  
+      376 +class TestParseMarkdownBlockQuote:                            
+      377 +    def test_blockquote_parsed(self):                         
+      378 +        md = "> This is a quote."                             
+      379 +        elements = parse_markdown(md)                         
+      380 +        assert len(elements) == 1                             
+      381 +        assert isinstance(elements[0], BlockQuote)            
+      382 +        assert len(elements[0].children) == 1                 
+      383 +        assert isinstance(elements[0].children[0], Paragraph) 
+      384 +        assert elements[0].children[0].runs[0].text == "This i
+          +s a quote."                                                   
+      385 +                                                              
+      386 +    def test_blockquote_with_emphasis(self):                  
+      387 +        md = "> *Italic quote* with **bold**."                
+      388 +        elements = parse_markdown(md)                         
+      389 +        assert isinstance(elements[0], BlockQuote)            
+      390 +        inner_para = elements[0].children[0]                  
+      391 +        italic_runs = [r for r in inner_para.runs if r.style.i
+          +talic]                                                        
+      392 +        bold_runs = [r for r in inner_para.runs if r.style.bol
+          +d]                                                            
+      393 +        assert len(italic_runs) >= 1                          
+      394 +        assert len(bold_runs) >= 1                            
+      395 +                                                              
+      396 +    def test_multiline_blockquote(self):                      
+      397 +        md = "> Line one.\n> Line two."                       
+      398 +        elements = parse_markdown(md)                         
+      399 +        assert isinstance(elements[0], BlockQuote)            
+      400 +                                                              
+      401 +                                                              
+      402 +class TestElementsToRequestsBlockQuote:                       
+      403 +    def test_blockquote_produces_indent(self):                
+      404 +        elements = [                                          
+      405 +            BlockQuote(children=[                             
+      406 +                Paragraph(runs=[TextRun(text="Quoted text.")])
+      407 +            ])                                                
+      408 +        ]                                                     
+      409 +        requests, _ = elements_to_requests(elements)          
+      410 +                                                              
+      411 +        para_styles = [r for r in requests if "updateParagraph
+          +Style" in r]                                                  
+      412 +        assert len(para_styles) >= 1                          
+      413 +        ps = para_styles[0]["updateParagraphStyle"]["paragraph
+          +Style"]                                                       
+      414 +        assert ps["indentStart"]["magnitude"] == 36           
+      415 +                                                              
+      416 +    def test_blockquote_italic_and_color(self):               
+      417 +        elements = [                                          
+      418 +            BlockQuote(children=[                             
+      419 +                Paragraph(runs=[TextRun(text="Quoted.")])     
+      420 +            ])                                                
+      421 +        ]                                                     
+      422 +        requests, _ = elements_to_requests(elements)          
+      423 +                                                              
+      424 +        text_styles = [r for r in requests if "updateTextStyle
+          +" in r]                                                       
+      425 +        # Should have a style with italic + foregroundColor fo
+          +r the blockquote                                              
+      426 +        bq_styles = [                                         
+      427 +            ts for ts in text_styles                          
+      428 +            if ts["updateTextStyle"]["textStyle"].get("italic"
+          +) is True                                                     
+      429 +            and "foregroundColor" in ts["updateTextStyle"]["te
+          +xtStyle"]                                                     
+      430 +        ]                                                     
+      431 +        assert len(bq_styles) >= 1                            
+      432 +                                                              
+      433 +                                                              
+      434 +class TestElementsToRequestsParagraphStyle:                   
+      435 +    def test_paragraph_has_line_spacing(self):                
+      436 +        elements = [Paragraph(runs=[TextRun(text="Body text.")
+          +])]                                                           
+      437 +        requests, _ = elements_to_requests(elements)          
+      438 +                                                              
+      439 +        para_styles = [r for r in requests if "updateParagraph
+          +Style" in r]                                                  
+      440 +        assert len(para_styles) >= 1                          
+      441 +        ps = para_styles[0]["updateParagraphStyle"]["paragraph
+          +Style"]                                                       
+      442 +        assert ps["lineSpacing"] == 133                       
+      443 +                                                              
+      444 +    def test_paragraph_has_space_below(self):                 
+      445 +        elements = [Paragraph(runs=[TextRun(text="Body text.")
+          +])]                                                           
+      446 +        requests, _ = elements_to_requests(elements)          
+      447 +                                                              
+      448 +        para_styles = [r for r in requests if "updateParagraph
+          +Style" in r]                                                  
+      449 +        ps = para_styles[0]["updateParagraphStyle"]["paragraph
+          +Style"]                                                       
+      450 +        assert ps["spaceBelow"]["magnitude"] == 10            
+      451 +                                                              
+      452 +    def test_paragraph_has_foreground_color(self):            
+      453 +        elements = [Paragraph(runs=[TextRun(text="Body text.")
+          +])]                                                           
+      454 +        requests, _ = elements_to_requests(elements)          
+      455 +                                                              
+      456 +        text_styles = [r for r in requests if "updateTextStyle
+          +" in r]                                                       
+      457 +        # Should have a foregroundColor style for body text   
+      458 +        color_styles = [                                      
+      459 +            ts for ts in text_styles                          
+      460 +            if "foregroundColor" in ts["updateTextStyle"]["tex
+          +tStyle"]                                                      
+      461 +        ]                                                     
+      462 +        assert len(color_styles) >= 1                         
+      463 +                                                              
+      464 +                                                              
+      465  class TestParseAndConvertRoundTrip:
+      466      """Integration: parse markdown then convert to requests.""
+           "
+      467  
+
+⏺ Now let's run the tests:
+
+⏺ Bash(uv run pytest tests/ -x -v --ignore=tests/test_style_publish.py 2>&1)
+  ⎿ ============================= test session starts =====================
+    =========
+    platform darwin -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0 -- /Users/
+    … +330 lines (ctrl+o to expand)
+
+
+
+⏺ All 160 tests pass (up from the original 151 — we added 8 new tests plus the
+  thematic break text style test).
+
+⏺ Let me verify the final state of both modified files:
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ Everything looks clean. Here's a summary of all changes made:
+
+  Summary
+
+  Files modified:
+  File: src/bookbook/converter/elements.py
+  Changes: Added BlockQuote dataclass + updated Element union type
+  ────────────────────────────────────────
+  File: src/bookbook/converter/md_to_docs.py
+  Changes: 4 changes (see below)
+  ────────────────────────────────────────
+  File: tests/test_converter/test_md_to_docs.py
+  Changes: Updated thematic break test + added 8 new tests
+  Files created:
+  File: tests/fixtures/style_test.md
+  Purpose: StyleTemplate Chapter 1 content for visual comparison
+  ────────────────────────────────────────
+  File: tests/test_style_publish.py
+  Purpose: Manual test — publishes to Google Doc and prints URL
+  Changes in md_to_docs.py:
+
+  1. Thematic break — "───────..." → "— ✦ —" with Georgia Italic 11pt #888888,
+  centered, 20pt spacing above/below
+  2. Paragraph body style — Added lineSpacing: 133, spaceBelow: 10pt, and
+  foregroundColor: #444444 to all body paragraphs
+  3. Blockquote parsing — block_quote token type now produces BlockQuote
+  elements
+  4. Blockquote rendering — _emit_block_quote() renders with indentStart: 36pt,
+  italic, foregroundColor: #666666
+
+  Test results: 160 tests pass (9 new tests added)
+
+  Next step:
+
+  Run the visual comparison test to publish to Google Docs:
+  uv run pytest tests/test_style_publish.py -s -m manual
+
+✻ Cooked for 3m 26s
+
+❯ ➜  history_yc_book_project uv run pytest tests/test_style_publish.py -s   
+  -m manual                                                                 
+  Traceback (most recent call last):                                        
+    File "/usr/local/bin/pytest", line 5, in <module>                       
+      from pytest import console_main                                       
+  ModuleNotFoundError: No module named 'pytest'                             
+  ➜  history_yc_book_project                                                
+
+⏺ The issue is that uv run should be executed from the project directory. Let me
+   also check if pytest needs a marker configuration.
+
+⏺ Bash(uv run pytest tests/test_style_publish.py -s -m manual 2>&1)
+  ⎿  Error: Exit code 1
+     ============================= test session starts 
+     ==============================
+     platform darwin -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0
+     rootdir: /Users/mckim/projects/bookbook
+     configfile: pyproject.toml
+     plugins: cov-7.0.0
+     collected 1 item
+
+     tests/test_style_publish.py F
+
+     … +136 lines (ctrl+o to see all)
+
+⏺ The error is an index tracking issue — request 96 tries to insert at index
+  2206 but the document ends at 2203. Let me debug this.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ The 3-index offset is likely a UTF-16 vs Python len() mismatch or an issue
+  with the blockquote/thematic break index tracking. Let me debug by generating
+  the requests locally.
+
+⏺ Bash(uv run python -c "
+      from bookbook.converter.md_to_docs import parse_markdown,
+      elements_to_requests…)
+  ⎿  0: Heading (HeadingLevel.H1)
+     1: BlockQuote (children: ['Paragraph'])
+     2: Heading (HeadingLevel.H2)
+     … +22 lines (ctrl+o to expand)
+
+⏺ The issue is in _emit_code_block — the table index overhead formula is wrong.
+  Request 94 inserts the code at 1894 (start_index=1890 + 4), the code is 306
+  chars (ending at 2200), but our formula calculates 1890 + 306 + 10 = 2206
+  while the actual document ends at 2203. The table overhead is 7, not 10.
+
+⏺ Bash(uv run python -c "
+      # Verify: code content length…)
+  ⎿  Code length: 306
+     Table start: 1890
+     Content at: 1890 + 4 = 1894
+     … +5 lines (ctrl+o to expand)
+
+⏺ Confirmed. The table overhead after content is 3 (not 6). Let me fix the
+  formula.
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 6 lines, removed 3 lines
+      535          }
+      536      })
+      537  
+      538 -    # Table end: content + paragraph newline(1) + cellEnd(1) +
+          - rowEnd(1) + tableEnd(1) + trailing newline(1)                
+      539 -    # Total table overhead = 4 (before) + 4 (after) + 1 (parag
+          -raph's newline already in cell)                               
+      540 -    new_index = start_index + 4 + len(code) + 1 + 4 + 1       
+      538 +    # Table structure indices:                                
+      539 +    #   Before content: table(1) + row(1) + cell(1) + paragrap
+          +h(1) = 4                                                      
+      540 +    #   Content: len(code) characters                         
+      541 +    #   After content: paragraph newline(1) + structure end(1)
+          + + trailing newline(1) = 3                                    
+      542 +    # Total overhead = 4 + 3 = 7                              
+      543 +    new_index = start_index + 4 + len(code) + 3               
+      544      return new_index
+      545  
+      546  
+
+⏺ Now run the tests to make sure nothing breaks:
+
+⏺ Bash(uv run pytest tests/ -x -v --ignore=tests/test_style_publish.py 2>&1)
+  ⎿ ============================= test session starts =====================
+    =========
+    platform darwin -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0 -- /Users/
+    … +330 lines (ctrl+o to expand)
+
+
+
+⏺ All 160 tests pass. Now let's run the style publish test again:
+
+⏺ Bash(uv run pytest tests/test_style_publish.py -s -m manual 2>&1)
+  ⎿  Error: Exit code 1
+     ============================= test session starts 
+     ==============================
+     platform darwin -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0
+     rootdir: /Users/mckim/projects/bookbook
+     configfile: pyproject.toml
+     plugins: cov-7.0.0
+     collected 1 item
+
+     tests/test_style_publish.py F
+
+     … +136 lines (ctrl+o to see all)
+
+⏺ Still off by 1. Now it's 2203 == 2203 (must be strictly less). The table
+  overhead is 6, not 7.
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 3 lines, removed 3 lines
+      538      # Table structure indices:
+      539      #   Before content: table(1) + row(1) + cell(1) + paragrap
+           h(1) = 4
+      540      #   Content: len(code) characters
+      541 -    #   After content: paragraph newline(1) + structure end(1)
+          - + trailing newline(1) = 3                                    
+      542 -    # Total overhead = 4 + 3 = 7                              
+      543 -    new_index = start_index + 4 + len(code) + 3               
+      541 +    #   After content: paragraph newline(1) + table structure 
+          +end(1) = 2                                                    
+      542 +    # Total overhead = 4 + 2 = 6                              
+      543 +    new_index = start_index + 4 + len(code) + 2               
+      544      return new_index
+      545  
+      546  
+
+⏺ Bash(uv run pytest tests/ -x --ignore=tests/test_style_publish.py -q 2>&1 &&
+      uv run pytest tests/test_style_publish.py -s -m manual 2>&1)
+  ⎿ .......................................................................
+    . [ 45%]
+    .......................................................................
+    … +35 lines (ctrl+o to expand)
+
+
+  ⎿  (timeout 1m)
+
+⏺ All 160 unit tests pass and the style publish test succeeded. The document is
+  available for visual comparison:
+
+  URL: https://docs.google.com/document/d/1jIJCsR765WUFQL1ak2oNpjlQlSl67g8Jvd6I-
+  _WwS7Q/edit
+
+  Let me also update the memory file with the bug fix finding.
+
+⏺ Recalled 1 memory, wrote 2 memories (ctrl+o to expand)
+
+⏺ Here's the summary:
+
+  Results
+
+  160 unit tests pass + 1 style publish test passes
+
+  Document for visual comparison: https://docs.google.com/document/d/1jIJCsR765W
+  UFQL1ak2oNpjlQlSl67g8Jvd6I-_WwS7Q/edit
+
+  Bug fix discovered during implementation
+
+  The _emit_code_block table index overhead formula was wrong — it used 10
+  indices of overhead but the actual Google Docs API table structure only uses 6
+   (4 before content + 2 after). This was a latent bug that never surfaced
+  because no prior test sent a code block followed by more content to the actual
+   API. Fixed the formula:
+
+  # Before (wrong): start_index + 4 + len(code) + 1 + 4 + 1  (overhead 10)
+  # After (correct): start_index + 4 + len(code) + 2           (overhead 6)
+
+  Next step
+
+  Open the document URL above and compare it side-by-side with the
+  StyleTemplate.docx to identify any remaining visual differences for the next
+  iteration.
+
+✻ Churned for 5m 55s
+
+❯ ➜  history_yc_book_project uv run pytest tests/test_style_publish.py -s   
+  -m manual                                                                 
+  Traceback (most recent call last):                                        
+    File "/usr/local/bin/pytest", line 5, in <module>                       
+      from pytest import console_main                                       
+  ModuleNotFoundError: No module named 'pytest'                             
+  ➜  history_yc_book_project git:(main)                                     
+                                                                            
+  나 왜 안돼지                                                              
+
+⏺ history_yc_book_project 디렉토리에서 실행하고 계세요. bookbook 프로젝트
+  디렉토리에서 실행해야 합니다.
+
+  cd /Users/mckim/projects/bookbook && uv run pytest tests/test_style_publish.py
+   -s -m manual
+
+  uv run은 해당 프로젝트의 .venv를 사용하므로, bookbook 루트에서 실행해야
+  pytest가 설치된 가상환경을 찾을 수 있습니다.
+
+❯ 크 좋아 훨씬 나은데? 다만 지금도 약간씩 원본 문서랑 달라. 좀더 찾아봐.    
+                                                                            
+  일단                                                                      
+                                                                            
+  PART ONE                                                                  
+  The Kitchen Briefing                                                      
+  — ✦ —                                                                     
+  CHAPTER 1                                                                 
+  The Baker vs. The Chef                                                    
+  What Is AI, Really?                                                       
+  "The only time to eat diet food is while waiting for the steak to cook."  
+  — Julia Child                                                             
+                                                                            
+                                                                            
+  이 시작부분의 가운데 정렬이 아예 달라.                                    
+                                                                            
+  — ✦ — 이거 색깔과 기울어짐이 다르고.                                      
+                                                                            
+  그리고 텍스트박스의 제목 글시체와 배경색도 달라.                          
+                                                                            
+  THE “AHA!” MOMENT                                                         
+  This is why AI is so eerily good at conversation and so embarrassingly    
+  bad at math. Conversation is cooking. Math is baking.                     
+  When you ask the Chef to write a paragraph about heart disease, it’s      
+  doing what it does best—blending flavors, following patterns, improvising 
+   a dish that tastes right. And most of the time, it tastes incredible.    
+  But when you ask it what 1,247 times 893 is? That requires a recipe. That 
+   requires precision. And The Chef doesn’t do precision. The Chef does     
+  vibes. So it will confidently serve you an answer that looks like a       
+  number, feels like a number, and is absolutely, catastrophically wrong.   
+  Remember this. It will save you a lot of trouble.                         
+                                                                            
+                                                                            
+                                                                            
+
+⏺ 원본 StyleTemplate과의 차이점을 정확히 파악하기 위해, 먼저 템플릿 문서의 실제
+  스타일을 API로 조사하겠습니다.
+
+⏺ Write(/private/tmp/claude-501/-Users-mckim-projects-bookbook/4f137f2a-d84e-4b2
+       e-9e1d-ce04fc50afea/scratchpad/inspect_template.py)
+  ⎿  Wrote 104 lines to
+     ../../../../private/tmp/claude-501/-Users-mckim-projects-bookbook/4f137
+     f2a-d84e-4b2e-9e1d-ce04fc50afea/scratchpad/inspect_template.py
+      1 """Inspect the StyleTemplate document's named styles and content 
+        structure."""
+      2 import json
+      3 from pathlib import Path
+      4 import yaml
+      5 from bookbook.google.auth import get_credentials
+      6 from bookbook.google.docs_client import DocsClient
+      7 from bookbook.google.drive_client import DriveClient
+      8 
+      9 BOOK_ROOT = Path("/Users/mckim/projects/bookbook")
+     … +94 lines (ctrl+o to expand)
+
+⏺ Bash(uv run python /private/tmp/claude-501/-Users-mckim-projects-bookbook/4f13
+      7f2a-d84e-4b2e-9e1d-ce04fc50afea/scratchpad/inspect_template.py 2>&1)
+  ⎿  ======================================================================
+     NAMED STYLES
+     ======================================================================
+     … +1442 lines (ctrl+o to expand)
+  ⎿  (timeout 30s)
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ The template gives us the named styles, but I need to see the actual sample
+  manuscript's inline styles. Let me inspect the sample document.
+
+⏺ Write(/private/tmp/claude-501/-Users-mckim-projects-bookbook/4f137f2a-d84e-4b2
+       e-9e1d-ce04fc50afea/scratchpad/inspect_sample.py)
+  ⎿  Wrote 106 lines to
+     ../../../../private/tmp/claude-501/-Users-mckim-projects-bookbook/4f137
+     f2a-d84e-4b2e-9e1d-ce04fc50afea/scratchpad/inspect_sample.py
+      1 """Inspect the sample manuscript document to find exact inline st
+        yles."""
+      2 import json
+      3 from pathlib import Path
+      4 import yaml
+      5 from bookbook.google.auth import get_credentials
+      6 from bookbook.google.docs_client import DocsClient
+      7 from bookbook.google.drive_client import DriveClient
+      8 
+      9 BOOK_ROOT = Path("/Users/mckim/projects/bookbook")
+     … +96 lines (ctrl+o to expand)
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Write(/private/tmp/claude-501/-Users-mckim-projects-bookbook/4f137f2a-d84e-4b2
+       e-9e1d-ce04fc50afea/scratchpad/inspect_sample.py)
+  ⎿  Added 48 lines, removed 40 lines
+       4  import yaml
+       5  from bookbook.google.auth import get_credentials
+       6  from bookbook.google.docs_client import DocsClient
+       7 -from bookbook.google.drive_client import DriveClient           
+       7 +from googleapiclient.discovery import build                    
+       8 +from googleapiclient.http import MediaFileUpload               
+       9  
+      10  BOOK_ROOT = Path("/Users/mckim/projects/bookbook")
+      11  
+     ...
+      13      config = yaml.safe_load(f)
+      14  
+      15  creds = get_credentials(BOOK_ROOT, BOOK_ROOT / "client_secret.j
+          son")
+      15 -drive_client = DriveClient(creds)                              
+      16  docs_client = DocsClient(creds)
+      17 +drive_service = build("drive", "v3", credentials=creds)        
+      18  
+      18 -# Upload the English sample manuscript as a Google Doc         
+      19 +# Upload the English sample as Google Doc (converts docx → nati
+         +ve)                                                            
+      20  sample_path = BOOK_ROOT / "imports" / "AI_Health_Playbook_샘플
+          원고_v04.docx"
+      20 -if not sample_path.exists():                                   
+      21 -    print(f"Sample not found at {sample_path}")                
+      22 -    exit(1)                                                    
+      23 -                                                               
+      21  folder_id = config["google"]["drive_folder_id"]
+      25 -doc_id = drive_client.copy_as_google_doc_from_file(str(sample_p
+         -ath), "TEMP-SampleInspect")                                    
+      26 -if not doc_id:                                                 
+      27 -    # Try uploading directly                                   
+      28 -    from googleapiclient.http import MediaFileUpload           
+      29 -    file_metadata = {                                          
+      30 -        'name': 'TEMP-SampleInspect',                          
+      31 -        'mimeType': 'application/vnd.google-apps.document',    
+      32 -        'parents': [folder_id] if folder_id else []            
+      33 -    }                                                          
+      34 -    media = MediaFileUpload(str(sample_path),                  
+      35 -                           mimetype='application/vnd.openxmlfor
+         -mats-officedocument.wordprocessingml.document')                
+      36 -    uploaded = drive_client._service.files().create(           
+      37 -        body=file_metadata,                                    
+      38 -        media_body=media,                                      
+      39 -        fields='id'                                            
+      40 -    ).execute()                                                
+      41 -    doc_id = uploaded['id']                                    
+      22  
+      23 +file_metadata = {                                              
+      24 +    'name': 'TEMP-SampleInspect',                              
+      25 +    'mimeType': 'application/vnd.google-apps.document',        
+      26 +}                                                              
+      27 +if folder_id:                                                  
+      28 +    file_metadata['parents'] = [folder_id]                     
+      29 +                                                               
+      30 +media = MediaFileUpload(                                       
+      31 +    str(sample_path),                                          
+      32 +    mimetype='application/vnd.openxmlformats-officedocument.wor
+         +dprocessingml.document'                                        
+      33 +)                                                              
+      34 +uploaded = drive_service.files().create(                       
+      35 +    body=file_metadata, media_body=media, fields='id'          
+      36 +).execute()                                                    
+      37 +doc_id = uploaded['id']                                        
+      38 +                                                               
+      39  doc = docs_client.get_document(doc_id)
+      40  
+      41  print("=" * 70)
+      46 -print("SAMPLE MANUSCRIPT BODY CONTENT (first 50 elements)")    
+      42 +print("SAMPLE MANUSCRIPT BODY (first 60 elements)")            
+      43  print("=" * 70)
+      44  
+      49 -for el in doc.get("body", {}).get("content", [])[:50]:         
+      45 +for el in doc.get("body", {}).get("content", [])[:60]:         
+      46      si = el.get("startIndex", "?")
+      47      ei = el.get("endIndex", "?")
+      48  
+     ...
+      59              text_parts.append(content)
+      60          text_preview = " | ".join(text_parts)[:100]
+      61  
+      66 -        print(f"\n[{si}-{ei}] PARAGRAPH style={named} align={al
+         -ign}")                                                         
+      67 -        ps_filtered = {k: v for k, v in ps.items()             
+      68 -                       if k not in ('namedStyleType', 'directio
+         -n') and v}                                                     
+      69 -        if ps_filtered:                                        
+      70 -            print(f"  paraStyle: {json.dumps(ps_filtered, inden
+         -t=4)}")                                                        
+      62 +        # Show meaningful paragraph style overrides            
+      63 +        ps_keys = ["alignment", "lineSpacing", "spaceAbove", "s
+         +paceBelow",                                                    
+      64 +                    "indentStart", "indentFirstLine", "shading"
+         +]                                                              
+      65 +        ps_show = {}                                           
+      66 +        for k in ps_keys:                                      
+      67 +            v = ps.get(k)                                      
+      68 +            if v and v != "START":                             
+      69 +                ps_show[k] = v                                 
+      70  
+      71 +        print(f"\n[{si}-{ei}] {named} align={align} :: {text_pr
+         +eview}")                                                       
+      72 +        if ps_show:                                            
+      73 +            print(f"  paraOverrides: {json.dumps(ps_show)}")   
+      74 +                                                               
+      75          for elem in p.get("elements", []):
+      76              tr = elem.get("textRun", {})
+      74 -            content = tr.get("content", "").replace("\n", "\\n"
+         -)[:60]                                                         
+      77 +            content = tr.get("content", "").replace("\n", "\\n"
+         +)[:50]                                                         
+      78              ts = tr.get("textStyle", {})
+      76 -            if ts or True:                                     
+      77 -                ts_filtered = {k: v for k, v in ts.items() if v
+         -}                                                              
+      78 -                print(f"    run '{content}': {json.dumps(ts_fil
+         -tered)}")                                                      
+      79 +            # Only show non-empty style props                  
+      80 +            ts_filtered = {k: v for k, v in ts.items()         
+      81 +                          if v and v != {} and k != 'baselineOf
+         +fset'}                                                         
+      82 +            if ts_filtered:                                    
+      83 +                print(f"    '{content}' → {json.dumps(ts_filter
+         +ed)}")                                                         
+      84  
+      85      elif "table" in el:
+      86          t = el["table"]
+     ...
+       90          for ri, row in enumerate(t.get("tableRows", [])[:2]):
+       91              for ci, cell in enumerate(row.get("tableCells", []
+           )[:2]):
+       92                  cs = cell.get("tableCellStyle", {})
+       88 -                cs_filtered = {k: v for k, v in cs.items() if 
+          -v}                                                            
+       89 -                print(f"  cell[{ri}][{ci}] style: {json.dumps(
+          -cs_filtered)}")                                               
+       90 -                for cp in cell.get("content", [])[:3]:        
+       93 +                cs_filtered = {k: v for k, v in cs.items()    
+       94 +                              if v and v != {} and k not in ('
+          +contentAlignment',)}                                          
+       95 +                if cs_filtered:                               
+       96 +                    print(f"  cell[{ri}][{ci}]: {json.dumps(cs
+          +_filtered)}")                                                 
+       97 +                for cp in cell.get("content", [])[:4]:        
+       98                      if "paragraph" in cp:
+       99                          cpp = cp["paragraph"]
+      100                          cps = cpp.get("paragraphStyle", {})
+      101 +                        cps_named = cps.get("namedStyleType", 
+          +"?")                                                          
+      102                          cps_align = cps.get("alignment", "STAR
+           T")
+      103                          for elem in cpp.get("elements", []):
+      104                              tr = elem.get("textRun", {})
+      105                              content = tr.get("content", "").re
+           place("\n", "\\n")[:60]
+      106                              ts = tr.get("textStyle", {})
+       99 -                            ts_filtered = {k: v for k, v in ts
+          -.items() if v}                                                
+      100 -                            print(f"      '{content}' align={c
+          -ps_align} ts={json.dumps(ts_filtered)}")                      
+      107 +                            ts_f = {k: v for k, v in ts.items(
+          +) if v and v != {}}                                           
+      108 +                            print(f"      '{content}' style={c
+          +ps_named} align={cps_align} ts={json.dumps(ts_f)}")           
+      109  
+      110      elif "sectionBreak" in el:
+      111          print(f"\n[{si}-{ei}] SECTION_BREAK")
+
+⏺ Bash(uv run python /private/tmp/claude-501/-Users-mckim-projects-bookbook/4f13
+      7f2a-d84e-4b2e-9e1d-ce04fc50afea/scratchpad/inspect_sample.py 2>&1)
+  ⎿  Error: Exit code 1
+     Traceback (most recent call last):
+       File "/private/tmp/claude-501/-Users-mckim-projects-bookbook/4f137f2a-d84
+     -4b2e-9e1d-ce04fc50afea/scratchpad/inspect_sample.py", line 36, in <module>
+         ).execute()
+           ~~~~~~~^^
+       File "/Users/mckim/projects/bookbook/.venv/lib/python3.13/site-packages/g
+     ogleapiclient/_helpers.py", line 130, in positional_wrapper
+         return wrapped(*args, **kwargs)
+       File "/Users/mckim/projects/bookbook/.venv/lib/python3.13/site-packages/g
+     ogleapiclient/http.py", line 938, in execute
+         raise HttpError(resp, content, uri=self.uri)
+     googleapiclient.errors.HttpError: <HttpError 404 when requesting 
+     https://www.googleapis.com/upload/drive/v3/files?fields=id&alt=json&uploadT
+     pe=multipart returned "File not found: 1VNLrtZVK8h2c5gsMkVdXE79-ogwtV89m.".
+     Details: "[{'message': 'File not found: 1VNLrtZVK8h2c5gsMkVdXE79-ogwtV89m.'
+      'domain': 'global', 'reason': 'notFound', 'location': 'fileId', 
+     'locationType': 'parameter'}]">
+
+
+⏺ Write(/private/tmp/claude-501/-Users-mckim-projects-bookbook/4f137f2a-d84e-4b2
+       e-9e1d-ce04fc50afea/scratchpad/inspect_sample.py)
+  ⎿  Removed 4 lines
+      18  
+      19  # Upload the English sample as Google Doc (converts docx → nati
+          ve)
+      20  sample_path = BOOK_ROOT / "imports" / "AI_Health_Playbook_샘플
+          원고_v04.docx"
+      21 -folder_id = config["google"]["drive_folder_id"]                
+      21  
+      22  file_metadata = {
+      23      'name': 'TEMP-SampleInspect',
+      24      'mimeType': 'application/vnd.google-apps.document',
+      25  }
+      27 -if folder_id:                                                  
+      28 -    file_metadata['parents'] = [folder_id]                     
+      26  
+      27  media = MediaFileUpload(
+      28      str(sample_path),
+     ...
+      73              tr = elem.get("textRun", {})
+      74              content = tr.get("content", "").replace("\n", "\\n"
+          )[:50]
+      75              ts = tr.get("textStyle", {})
+      79 -            # Only show non-empty style props                  
+      76              ts_filtered = {k: v for k, v in ts.items()
+      77                            if v and v != {} and k != 'baselineOf
+          fset'}
+      78              if ts_filtered:
+
+❯ 내가 원본 스타일 문서에서 생성한 마크다운 문서를 리뷰해볼게. 어느걸 보면  
+  될까?                                                                     
+
+⏺ Bash(uv run python /private/tmp/claude-501/-Users-mckim-projects-bookbook/4f13
+      7f2a-d84e-4b2e-9e1d-ce04fc50afea/scratchpad/inspect_sample.py 2>&1)
+  ⎿  ======================================================================
+     SAMPLE MANUSCRIPT BODY (first 60 elements)
+     ======================================================================
+     … +331 lines (ctrl+o to expand)
+  ⎿  (timeout 1m)
+
+⏺ 원본 샘플 문서의 실제 스타일을 확인했습니다. 차이점을 정리하면:
+  ┌──────────────────────┬───────────────────────────┬─────────────┬────────┐
+  │         요소         │         원본 샘플         │  현재 코드  │  수정  │
+  ├──────────────────────┼───────────────────────────┼─────────────┼────────┤
+  │ 본문 lineSpacing     │ 115                       │ 133         │ ✓      │
+  ├──────────────────────┼───────────────────────────┼─────────────┼────────┤
+  │ 본문 spaceBelow      │ 7.5pt                     │ 10pt        │ ✓      │
+  ├──────────────────────┼───────────────────────────┼─────────────┼────────┤
+  │ 본문 foregroundColor │ 없음 (named style 기본값) │ #444444     │ ✓ 제거 │
+  ├──────────────────────┼───────────────────────────┼─────────────┼────────┤
+  │ 챕터 제목 정렬       │ CENTER                    │ START       │ ✓      │
+  ├──────────────────────┼───────────────────────────┼─────────────┼────────┤
+  │ 코드블록 배경색      │ #F0F7FF (연한 파랑)       │ 없음 (흰색) │ ✓      │
+  ├──────────────────────┼───────────────────────────┼─────────────┼────────┤
+  │ 코드블록 테두리      │ #4A90D9 0.5pt             │ 없음        │ ✓      │
+  ├──────────────────────┼───────────────────────────┼─────────────┼────────┤
+  │ 코드블록 패딩        │ 7.5pt/6pt                 │ 없음        │ ✓      │
+  └──────────────────────┴───────────────────────────┴─────────────┴────────┘
+  리뷰하실 문서는 tests/fixtures/style_test.md 입니다. 수정 후 다시 퍼블리시하면
+   비교 가능합니다. 지금 바로 코드를 수정하겠습니다.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now let me apply all three fixes together:
+
+  Fix 1: Paragraph styling — lineSpacing 115, spaceBelow 7.5pt, remove
+  foregroundColor
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 3 lines, removed 25 lines
+      392          }
+      393      })
+      394  
+      395 -    # Paragraph style: NORMAL_TEXT + line spacing 133% + space
+          -Below 10pt                                                    
+      395 +    # Paragraph style: NORMAL_TEXT + line spacing 115% + space
+          +Below 7.5pt                                                   
+      396      requests.append({
+      397          "updateParagraphStyle": {
+      398              "range": {
+     ...
+      401              },
+      402              "paragraphStyle": {
+      403                  "namedStyleType": "NORMAL_TEXT",
+      404 -                "lineSpacing": 133,                           
+      405 -                "spaceBelow": {"magnitude": 10, "unit": "PT"},
+      404 +                "lineSpacing": 115,                           
+      405 +                "spaceBelow": {"magnitude": 7.5, "unit": "PT"}
+          +,                                                             
+      406              },
+      407              "fields": "namedStyleType,lineSpacing,spaceBelow",
+      408          }
+      409      })
+      410  
+      411 -    # Body text color: #444444 applied to whole paragraph text
+          - range                                                        
+      412 -    requests.append({                                         
+      413 -        "updateTextStyle": {                                  
+      414 -            "range": {                                        
+      415 -                "startIndex": start_index,                    
+      416 -                "endIndex": index,                            
+      417 -            },                                                
+      418 -            "textStyle": {                                    
+      419 -                "foregroundColor": {                          
+      420 -                    "color": {                                
+      421 -                        "rgbColor": {                         
+      422 -                            "red": 0x44 / 255,                
+      423 -                            "green": 0x44 / 255,              
+      424 -                            "blue": 0x44 / 255,               
+      425 -                        }                                     
+      426 -                    }                                         
+      427 -                },                                            
+      428 -            },                                                
+      429 -            "fields": "foregroundColor",                      
+      430 -        }                                                     
+      431 -    })                                                        
+      432 -                                                              
+      411      return index + 1
+      412  
+      413  
+
+⏺ Fix 2: H1 heading center alignment
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 10 lines, removed 2 lines
+      359  
+      360      # Apply heading style to the paragraph
+      361      named_style = _HEADING_STYLE_MAP[heading.level]
+      362 +    para_style: dict[str, Any] = {"namedStyleType": named_styl
+          +e}                                                            
+      363 +    fields = "namedStyleType"                                 
+      364 +                                                              
+      365 +    # H1 and H2 are chapter/section openers — center-aligned  
+      366 +    if heading.level in (HeadingLevel.H1, HeadingLevel.H2):   
+      367 +        para_style["alignment"] = "CENTER"                    
+      368 +        fields += ",alignment"                                
+      369 +                                                              
+      370      requests.append({
+      371          "updateParagraphStyle": {
+      372              "range": {
+      373                  "startIndex": start_index,
+      374                  "endIndex": index + 1,
+      375              },
+      368 -            "paragraphStyle": {"namedStyleType": named_style},
+      369 -            "fields": "namedStyleType",                       
+      376 +            "paragraphStyle": para_style,                     
+      377 +            "fields": fields,                                 
+      378          }
+      379      })
+      380  
+
+⏺ Fix 3: Code block table styling — background color, border, padding
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 25 lines
+      521          }
+      522      })
+      523  
+      524 +    # Style the table cell: light blue background + blue borde
+          +r + padding                                                   
+      525 +    _CELL_BG = {"color": {"rgbColor": {"red": 0.941, "green": 
+          +0.969, "blue": 1.0}}}                                         
+      526 +    _CELL_BORDER = {                                          
+      527 +        "color": {"color": {"rgbColor": {"red": 0.290, "green"
+          +: 0.565, "blue": 0.851}}},                                    
+      528 +        "width": {"magnitude": 0.5, "unit": "PT"},            
+      529 +        "dashStyle": "SOLID",                                 
+      530 +    }                                                         
+      531 +    requests.append({                                         
+      532 +        "updateTableCellStyle": {                             
+      533 +            "tableStartLocation": {"index": start_index},     
+      534 +            "tableCellStyle": {                               
+      535 +                "backgroundColor": _CELL_BG,                  
+      536 +                "borderLeft": _CELL_BORDER,                   
+      537 +                "borderRight": _CELL_BORDER,                  
+      538 +                "borderTop": _CELL_BORDER,                    
+      539 +                "borderBottom": _CELL_BORDER,                 
+      540 +                "paddingLeft": {"magnitude": 7.5, "unit": "PT"
+          +},                                                            
+      541 +                "paddingRight": {"magnitude": 7.5, "unit": "PT
+          +"},                                                           
+      542 +                "paddingTop": {"magnitude": 6, "unit": "PT"}, 
+      543 +                "paddingBottom": {"magnitude": 6, "unit": "PT"
+          +},                                                            
+      544 +            },                                                
+      545 +            "fields": "backgroundColor,borderLeft,borderRight,
+          +borderTop,borderBottom,paddingLeft,paddingRight,paddingTop,pad
+          +dingBottom",                                                  
+      546 +        }                                                     
+      547 +    })                                                        
+      548 +                                                              
+      549      # Table structure indices:
+      550      #   Before content: table(1) + row(1) + cell(1) + paragrap
+           h(1) = 4
+      551      #   Content: len(code) characters
+
+⏺ Now update the blockquote to also use lineSpacing 115 and spaceBelow 7.5pt:
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 2 lines, removed 2 lines
+      692                      "paragraphStyle": {
+      693                          "namedStyleType": "NORMAL_TEXT",
+      694                          "indentStart": {"magnitude": 36, "unit
+           ": "PT"},
+      695 -                        "lineSpacing": 133,                   
+      696 -                        "spaceBelow": {"magnitude": 10, "unit"
+          -: "PT"},                                                      
+      695 +                        "lineSpacing": 115,                   
+      696 +                        "spaceBelow": {"magnitude": 7.5, "unit
+          +": "PT"},                                                     
+      697                      },
+      698                      "fields": "namedStyleType,indentStart,line
+           Spacing,spaceBelow",
+      699                  }
+
+⏺ Now update the tests to match the new values:
+
+⏺ Update(tests/test_converter/test_md_to_docs.py)
+  ⎿  Added 25 lines, removed 11 lines
+      439          para_styles = [r for r in requests if "updateParagraph
+           Style" in r]
+      440          assert len(para_styles) >= 1
+      441          ps = para_styles[0]["updateParagraphStyle"]["paragraph
+           Style"]
+      442 -        assert ps["lineSpacing"] == 133                       
+      442 +        assert ps["lineSpacing"] == 115                       
+      443  
+      444      def test_paragraph_has_space_below(self):
+      445          elements = [Paragraph(runs=[TextRun(text="Body text.")
+           ])]
+     ...
+      447  
+      448          para_styles = [r for r in requests if "updateParagraph
+           Style" in r]
+      449          ps = para_styles[0]["updateParagraphStyle"]["paragraph
+           Style"]
+      450 -        assert ps["spaceBelow"]["magnitude"] == 10            
+      450 +        assert ps["spaceBelow"]["magnitude"] == 7.5           
+      451  
+      452 -    def test_paragraph_has_foreground_color(self):            
+      453 -        elements = [Paragraph(runs=[TextRun(text="Body text.")
+          -])]                                                           
+      452 +                                                              
+      453 +class TestElementsToRequestsHeadingAlignment:                 
+      454 +    def test_h1_is_center_aligned(self):                      
+      455 +        elements = [Heading(level=HeadingLevel.H1, runs=[TextR
+          +un(text="Part")])]                                            
+      456          requests, _ = elements_to_requests(elements)
+      457  
+      456 -        text_styles = [r for r in requests if "updateTextStyle
+          -" in r]                                                       
+      457 -        # Should have a foregroundColor style for body text   
+      458 -        color_styles = [                                      
+      459 -            ts for ts in text_styles                          
+      460 -            if "foregroundColor" in ts["updateTextStyle"]["tex
+          -tStyle"]                                                      
+      461 -        ]                                                     
+      462 -        assert len(color_styles) >= 1                         
+      458 +        para_styles = [r for r in requests if "updateParagraph
+          +Style" in r]                                                  
+      459 +        ps = para_styles[0]["updateParagraphStyle"]["paragraph
+          +Style"]                                                       
+      460 +        assert ps["alignment"] == "CENTER"                    
+      461  
+      462 +    def test_h2_is_center_aligned(self):                      
+      463 +        elements = [Heading(level=HeadingLevel.H2, runs=[TextR
+          +un(text="Chapter")])]                                         
+      464 +        requests, _ = elements_to_requests(elements)          
+      465  
+      466 +        para_styles = [r for r in requests if "updateParagraph
+          +Style" in r]                                                  
+      467 +        ps = para_styles[0]["updateParagraphStyle"]["paragraph
+          +Style"]                                                       
+      468 +        assert ps["alignment"] == "CENTER"                    
+      469 +                                                              
+      470 +    def test_h3_is_not_center_aligned(self):                  
+      471 +        elements = [Heading(level=HeadingLevel.H3, runs=[TextR
+          +un(text="Section")])]                                         
+      472 +        requests, _ = elements_to_requests(elements)          
+      473 +                                                              
+      474 +        para_styles = [r for r in requests if "updateParagraph
+          +Style" in r]                                                  
+      475 +        ps = para_styles[0]["updateParagraphStyle"]["paragraph
+          +Style"]                                                       
+      476 +        assert "alignment" not in ps                          
+      477 +                                                              
+      478 +                                                              
+      479  class TestParseAndConvertRoundTrip:
+      480      """Integration: parse markdown then convert to requests.""
+           "
+      481  
+
+⏺ Add a code block cell style test:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(tests/test_converter/test_md_to_docs.py)
+  ⎿  Added 10 lines
+      293          font = text_styles[0]["updateTextStyle"]["textStyle"][
+           "weightedFontFamily"]
+      294          assert font["fontFamily"] == "Courier New"
+      295  
+      296 +    def test_code_block_cell_style(self):                     
+      297 +        elements = [CodeBlock(code="x = 1")]                  
+      298 +        requests, _ = elements_to_requests(elements)          
+      299 +                                                              
+      300 +        cell_styles = [r for r in requests if "updateTableCell
+          +Style" in r]                                                  
+      301 +        assert len(cell_styles) == 1                          
+      302 +        cs = cell_styles[0]["updateTableCellStyle"]["tableCell
+          +Style"]                                                       
+      303 +        assert "backgroundColor" in cs                        
+      304 +        assert "paddingTop" in cs                             
+      305 +                                                              
+      306      def test_empty_code_block_produces_no_requests(self):
+      307          elements = [CodeBlock(code="")]
+      308          requests, _ = elements_to_requests(elements)
+
+⏺ Now run all tests:
+
+⏺ Bash(uv run pytest tests/ -x -v --ignore=tests/test_style_publish.py 2>&1)
+  ⎿ ============================= test session starts =====================
+    =========
+    platform darwin -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0 -- /Users/
+    … +336 lines (ctrl+o to expand)
+
+
+
+⏺ 163 tests pass. Now publish and compare:
+
+⏺ Bash(uv run pytest tests/test_style_publish.py -s -m manual 2>&1)
+  ⎿  Error: Exit code 1
+     ============================= test session starts 
+     ==============================
+     platform darwin -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0
+     rootdir: /Users/mckim/projects/bookbook
+     configfile: pyproject.toml
+     plugins: cov-7.0.0
+     collected 1 item
+
+     tests/test_style_publish.py F
+
+     … +136 lines (ctrl+o to see all)
+
+⏺ The updateTableCellStyle needs the tableRange wrapper with tableCellLocation.
+  Let me fix the format.
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 9 lines, removed 1 line
+      530      }
+      531      requests.append({
+      532          "updateTableCellStyle": {
+      533 -            "tableStartLocation": {"index": start_index},     
+      533 +            "tableRange": {                                   
+      534 +                "tableCellLocation": {                        
+      535 +                    "tableStartLocation": {"index": start_inde
+          +x},                                                           
+      536 +                    "rowIndex": 0,                            
+      537 +                    "columnIndex": 0,                         
+      538 +                },                                            
+      539 +                "rowSpan": 1,                                 
+      540 +                "columnSpan": 1,                              
+      541 +            },                                                
+      542              "tableCellStyle": {
+      543                  "backgroundColor": _CELL_BG,
+      544                  "borderLeft": _CELL_BORDER,
+
+⏺ Bash(uv run pytest tests/ -x -q --ignore=tests/test_style_publish.py 2>&1 &&
+      uv run pytest tests/test_style_publish.py -s -m manual 2>&1)
+  ⎿  Error: Exit code 1
+     ........................................................................ [ 
+     44%]
+     ........................................................................ [ 
+     88%]
+     ...................                                                      
+     [100%]
+     163 passed in 0.56s
+     ============================= test session starts 
+     ==============================
+     platform darwin -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0
+     rootdir: /Users/mckim/projects/bookbook
+     configfile: pyproject.toml
+     plugins: cov-7.0.0
+     … +140 lines (ctrl+o to see all)
+
+⏺ Bash(uv run python -c "
+      from bookbook.converter.md_to_docs import parse_markdown,
+      elements_to_requests…)
+  ⎿  [88] insertText: {
+       "location": {
+         "index": 1894
+     … +55 lines (ctrl+o to expand)
+
+⏺ Bash(uv run python -c "
+      from bookbook.converter.md_to_docs import parse_markdown,
+      elements_to_requests…)
+  ⎿  [87] insertTable at index 1890
+
+⏺ The issue might be that updateTableCellStyle needs to come right after the
+  table creation, before text insertions. Let me reorder the requests.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Let me move the updateTableCellStyle to right after insertTable:
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 34 lines, removed 33 lines
+      488          }
+      489      })
+      490  
+      491 +    # Style the table cell immediately after creation:        
+      492 +    # light blue background + blue border + padding           
+      493 +    _CELL_BG = {"color": {"rgbColor": {"red": 0.941, "green": 
+          +0.969, "blue": 1.0}}}                                         
+      494 +    _CELL_BORDER = {                                          
+      495 +        "color": {"color": {"rgbColor": {"red": 0.290, "green"
+          +: 0.565, "blue": 0.851}}},                                    
+      496 +        "width": {"magnitude": 0.5, "unit": "PT"},            
+      497 +        "dashStyle": "SOLID",                                 
+      498 +    }                                                         
+      499 +    requests.append({                                         
+      500 +        "updateTableCellStyle": {                             
+      501 +            "tableRange": {                                   
+      502 +                "tableCellLocation": {                        
+      503 +                    "tableStartLocation": {"index": start_inde
+          +x},                                                           
+      504 +                    "rowIndex": 0,                            
+      505 +                    "columnIndex": 0,                         
+      506 +                },                                            
+      507 +                "rowSpan": 1,                                 
+      508 +                "columnSpan": 1,                              
+      509 +            },                                                
+      510 +            "tableCellStyle": {                               
+      511 +                "backgroundColor": _CELL_BG,                  
+      512 +                "borderLeft": _CELL_BORDER,                   
+      513 +                "borderRight": _CELL_BORDER,                  
+      514 +                "borderTop": _CELL_BORDER,                    
+      515 +                "borderBottom": _CELL_BORDER,                 
+      516 +                "paddingLeft": {"magnitude": 7.5, "unit": "PT"
+          +},                                                            
+      517 +                "paddingRight": {"magnitude": 7.5, "unit": "PT
+          +"},                                                           
+      518 +                "paddingTop": {"magnitude": 6, "unit": "PT"}, 
+      519 +                "paddingBottom": {"magnitude": 6, "unit": "PT"
+          +},                                                            
+      520 +            },                                                
+      521 +            "fields": "backgroundColor,borderLeft,borderRight,
+          +borderTop,borderBottom,paddingLeft,paddingRight,paddingTop,pad
+          +dingBottom",                                                  
+      522 +        }                                                     
+      523 +    })                                                        
+      524 +                                                              
+      525      # After insertTable, the table structure takes some indice
+           s.
+      526      # Table structure: tableStart(1) + rowStart(1) + cellStart
+           (1) + paragraph(1) + content
+      527      # The content insertion point is at start_index + 4
+     ...
+      555          }
+      556      })
+      557  
+      524 -    # Style the table cell: light blue background + blue borde
+          -r + padding                                                   
+      525 -    _CELL_BG = {"color": {"rgbColor": {"red": 0.941, "green": 
+          -0.969, "blue": 1.0}}}                                         
+      526 -    _CELL_BORDER = {                                          
+      527 -        "color": {"color": {"rgbColor": {"red": 0.290, "green"
+          -: 0.565, "blue": 0.851}}},                                    
+      528 -        "width": {"magnitude": 0.5, "unit": "PT"},            
+      529 -        "dashStyle": "SOLID",                                 
+      530 -    }                                                         
+      531 -    requests.append({                                         
+      532 -        "updateTableCellStyle": {                             
+      533 -            "tableRange": {                                   
+      534 -                "tableCellLocation": {                        
+      535 -                    "tableStartLocation": {"index": start_inde
+          -x},                                                           
+      536 -                    "rowIndex": 0,                            
+      537 -                    "columnIndex": 0,                         
+      538 -                },                                            
+      539 -                "rowSpan": 1,                                 
+      540 -                "columnSpan": 1,                              
+      541 -            },                                                
+      542 -            "tableCellStyle": {                               
+      543 -                "backgroundColor": _CELL_BG,                  
+      544 -                "borderLeft": _CELL_BORDER,                   
+      545 -                "borderRight": _CELL_BORDER,                  
+      546 -                "borderTop": _CELL_BORDER,                    
+      547 -                "borderBottom": _CELL_BORDER,                 
+      548 -                "paddingLeft": {"magnitude": 7.5, "unit": "PT"
+          -},                                                            
+      549 -                "paddingRight": {"magnitude": 7.5, "unit": "PT
+          -"},                                                           
+      550 -                "paddingTop": {"magnitude": 6, "unit": "PT"}, 
+      551 -                "paddingBottom": {"magnitude": 6, "unit": "PT"
+          -},                                                            
+      552 -            },                                                
+      553 -            "fields": "backgroundColor,borderLeft,borderRight,
+          -borderTop,borderBottom,paddingLeft,paddingRight,paddingTop,pad
+          -dingBottom",                                                  
+      554 -        }                                                     
+      555 -    })                                                        
+      556 -                                                              
+      558      # Table structure indices:
+      559      #   Before content: table(1) + row(1) + cell(1) + paragrap
+           h(1) = 4
+      560      #   Content: len(code) characters
+
+⏺ Bash(uv run pytest tests/ -x -q --ignore=tests/test_style_publish.py 2>&1 &&
+      uv run pytest tests/test_style_publish.py -s -m manual 2>&1)
+  ⎿  Error: Exit code 1
+     ........................................................................ [ 
+     44%]
+     ........................................................................ [ 
+     88%]
+     ...................                                                      
+     [100%]
+     163 passed in 0.57s
+     ============================= test session starts 
+     ==============================
+     platform darwin -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0
+     rootdir: /Users/mckim/projects/bookbook
+     configfile: pyproject.toml
+     plugins: cov-7.0.0
+     … +140 lines (ctrl+o to see all)
+
+⏺ Let me try with different tableStartLocation offsets to find the correct one:
+
+⏺ Write(/private/tmp/claude-501/-Users-mckim-projects-bookbook/4f137f2a-d84e-4b2
+       e-9e1d-ce04fc50afea/scratchpad/test_table_style.py)
+  ⎿  Wrote 76 lines to
+     ../../../../private/tmp/claude-501/-Users-mckim-projects-bookbook/4f137
+     f2a-d84e-4b2e-9e1d-ce04fc50afea/scratchpad/test_table_style.py
+       1 """Test minimal table creation + cell styling to find correct ta
+         bleStartLocation."""
+       2 from pathlib import Path
+       3 import yaml
+       4 from bookbook.google.auth import get_credentials
+       5 from bookbook.google.docs_client import DocsClient
+       6 from bookbook.google.drive_client import DriveClient
+       7 
+       8 BOOK_ROOT = Path("/Users/mckim/projects/bookbook")
+       9 
+      10 with open(BOOK_ROOT / "book.yaml") as f:
+     … +66 lines (ctrl+o to expand)
+
+⏺ Bash(uv run python /private/tmp/claude-501/-Users-mckim-projects-bookbook/4f13
+      7f2a-d84e-4b2e-9e1d-ce04fc50afea/scratchpad/test_table_style.py 2>&1)
+  ⎿  PARA at startIndex=1, endIndex=7: 'Hello\n'
+     PARA at startIndex=7, endIndex=8: '\n'
+     TABLE at startIndex=8, endIndex=22
+     … +7 lines (ctrl+o to expand)
+  ⎿  (timeout 30s)
+
+⏺ The insertTable creates an extra paragraph \n before the table. The table
+  actually starts at start_index + 1, not start_index. Let me fix the
+  tableStartLocation.
+
+⏺ Update(src/bookbook/converter/md_to_docs.py)
+  ⎿  Added 3 lines, removed 1 line
+      490  
+      491      # Style the table cell immediately after creation:
+      492      # light blue background + blue border + padding
+      493 +    # Note: insertTable creates a paragraph break at start_ind
+          +ex,                                                           
+      494 +    # so the table's actual startIndex is start_index + 1.    
+      495      _CELL_BG = {"color": {"rgbColor": {"red": 0.941, "green": 
+           0.969, "blue": 1.0}}}
+      496      _CELL_BORDER = {
+      497          "color": {"color": {"rgbColor": {"red": 0.290, "green"
+           : 0.565, "blue": 0.851}}},
+     ...
+      502          "updateTableCellStyle": {
+      503              "tableRange": {
+      504                  "tableCellLocation": {
+      503 -                    "tableStartLocation": {"index": start_inde
+          -x},                                                           
+      505 +                    "tableStartLocation": {"index": start_inde
+          +x + 1},                                                       
+      506                      "rowIndex": 0,
+      507                      "columnIndex": 0,
+      508                  },
+
+❯ /export 2026-02-06-styletemplate-test.txt 
+
+⏺ Bash(uv run pytest tests/ -x -q --ignore=tests/test_style_publish.py 2>&1 &&
+      uv run pytest tests/test_style_publish.py -s -m manual 2>&1)
+  ⎿ .......................................................................
+    . [ 44%]
+    .......................................................................
+    … +35 lines (ctrl+o to expand)
+
+
+  ⎿  (timeout 1m)
+
+⏺ 163 unit tests pass + style publish 성공!
+
+  새 문서 URL: https://docs.google.com/document/d/1dBSAg0FPwLvQmfcKYDhS2sCeSDcCv
+  ta9KU41aAQR9Vo/edit
+
+  이번 라운드에서 수정한 내용:
+  ┌──────────────────────┬─────────┬────────────────────────────────┐
+  │      수정 항목       │ Before  │             After              │
+  ├──────────────────────┼─────────┼────────────────────────────────┤
+  │ 본문 lineSpacing     │ 133     │ 115 (원본 일치)                │
+  ├──────────────────────┼─────────┼────────────────────────────────┤
+  │ 본문 spaceBelow      │ 10pt    │ 7.5pt (원본 일치)              │
+  ├──────────────────────┼─────────┼────────────────────────────────┤
+  │ 본문 foregroundColor │ #444444 │ 제거 (named style 기본값 사용) │
+  ├──────────────────────┼─────────┼────────────────────────────────┤
+  │ H1/H2 정렬           │ START   │ CENTER                         │
+  ├──────────────────────┼─────────┼────────────────────────────────┤
+  │ 코드블록 배경        │ 없음    │ #F0F7FF (연한 파랑)            │
+  ├──────────────────────┼─────────┼────────────────────────────────┤
+  │ 코드블록 테두리      │ 없음    │ #4A90D9 0.5pt                  │
+  ├──────────────────────┼─────────┼────────────────────────────────┤
+  │ 코드블록 패딩        │ 없음    │ 7.5pt / 6pt                    │
+  └──────────────────────┴─────────┴────────────────────────────────┘
+  /export 명령은 제가 지원하지 않는 명령어입니다. 대화 내용을 파일로 저장하고
+  싶으시면 다른 방법을 알려드릴 수 있습니다. 원본 문서와 비교해서 추가 차이점이
+  있으면 알려주세요!
+
+✻ Sautéed for 9m 17s
