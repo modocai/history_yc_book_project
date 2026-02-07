@@ -1,6 +1,6 @@
 # AI-based Book Publish Solution
 
-Chronological summary of the `bookbook` project lifecycle: requirements, architecture, implementation, debugging, and shipping.
+`bookbook` is a Git-native book production system that keeps markdown as source of truth, publishes review-ready Google Docs, and converts review feedback into GitHub issues for AI-assisted execution.
 
 ## What Bookbook Solves
 
