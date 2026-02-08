@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="560" viewBox="0 0 1400 560">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#3f3f3f" />
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1400" height="560" fill="#fbf8ff"/>
+  <text x="700" y="46" text-anchor="middle" font-size="28" font-family="Helvetica, Arial, sans-serif" fill="#4a2f7f" font-weight="700">Phase 6: Style Fidelity Iteration Loop</text>
+
+  <rect x="70" y="150" width="220" height="90" rx="12" fill="#ffffff" stroke="#9b7ed8"/>
+  <text x="180" y="186" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#2f2f2f">Template Diff Matrix</text>
+  <text x="180" y="212" text-anchor="middle" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#4a2f7f">identify style gaps</text>
+
+  <rect x="340" y="150" width="240" height="90" rx="12" fill="#ffffff" stroke="#9b7ed8"/>
+  <text x="460" y="186" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#2f2f2f">Converter Updates</text>
+  <text x="460" y="212" text-anchor="middle" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#4a2f7f">emit/parsing/style fixes</text>
+
+  <rect x="630" y="150" width="200" height="90" rx="12" fill="#ffffff" stroke="#9b7ed8"/>
+  <text x="730" y="186" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#2f2f2f">Test Suite</text>
+  <text x="730" y="212" text-anchor="middle" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#4a2f7f">160+ -> 163 pass</text>
+
+  <rect x="880" y="150" width="210" height="90" rx="12" fill="#ffffff" stroke="#9b7ed8"/>
+  <text x="985" y="186" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#2f2f2f">Manual Publish</text>
+  <text x="985" y="212" text-anchor="middle" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#4a2f7f">visual compare in Docs</text>
+
+  <rect x="1140" y="150" width="200" height="90" rx="12" fill="#ffffff" stroke="#9b7ed8"/>
+  <text x="1240" y="186" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#2f2f2f">User Feedback</text>
+  <text x="1240" y="212" text-anchor="middle" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#4a2f7f">next delta set</text>
+
+  <line x1="290" y1="194" x2="340" y2="194" stroke="#3f3f3f" stroke-width="2.3" marker-end="url(#arrow)"/>
+  <line x1="580" y1="194" x2="630" y2="194" stroke="#3f3f3f" stroke-width="2.3" marker-end="url(#arrow)"/>
+  <line x1="830" y1="194" x2="880" y2="194" stroke="#3f3f3f" stroke-width="2.3" marker-end="url(#arrow)"/>
+  <line x1="1090" y1="194" x2="1140" y2="194" stroke="#3f3f3f" stroke-width="2.3" marker-end="url(#arrow)"/>
+
+  <path d="M1240,240 C1240,320 200,320 180,240" fill="none" stroke="#3f3f3f" stroke-width="2.3" marker-end="url(#arrow)"/>
+
+  <rect x="390" y="370" width="620" height="130" rx="12" fill="#ffffff" stroke="#9b7ed8"/>
+  <text x="700" y="410" text-anchor="middle" font-size="19" font-family="Helvetica, Arial, sans-serif" fill="#4a2f7f" font-weight="700">Notable Debug Fix</text>
+  <text x="700" y="442" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#2f2f2f">_emit_code_block index overhead corrected: 10 -> 6</text>
+  <text x="700" y="470" text-anchor="middle" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#4f4f4f">Eliminated publish index mismatch in later content insertion</text>
+</svg>

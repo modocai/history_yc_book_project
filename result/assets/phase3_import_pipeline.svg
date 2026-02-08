@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="540" viewBox="0 0 1400 540">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#2f4f4f" />
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1400" height="540" fill="#f6f9ff"/>
+  <text x="700" y="48" text-anchor="middle" font-size="28" font-family="Helvetica, Arial, sans-serif" fill="#223a7a" font-weight="700">Phase 3: Auth + Drive Import Pipeline</text>
+
+  <rect x="70" y="120" width="240" height="90" rx="12" fill="#ffffff" stroke="#6b8bd6"/>
+  <text x="190" y="158" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#2d2d2d">OAuth Scope Update</text>
+  <text x="190" y="184" text-anchor="middle" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#223a7a">drive.file -> drive</text>
+
+  <rect x="360" y="120" width="280" height="90" rx="12" fill="#ffffff" stroke="#6b8bd6"/>
+  <text x="500" y="158" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#2d2d2d">Drive Client Extensions</text>
+  <text x="500" y="184" text-anchor="middle" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#223a7a">list + download + export</text>
+
+  <rect x="690" y="120" width="230" height="90" rx="12" fill="#ffffff" stroke="#6b8bd6"/>
+  <text x="805" y="158" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#2d2d2d">CLI: book import</text>
+  <text x="805" y="184" text-anchor="middle" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#223a7a">recursive folder ingest</text>
+
+  <rect x="970" y="120" width="350" height="90" rx="12" fill="#ffffff" stroke="#6b8bd6"/>
+  <text x="1145" y="158" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#2d2d2d">Shared Drive Compatibility</text>
+  <text x="1145" y="184" text-anchor="middle" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#223a7a">supportsAllDrives + includeItemsFromAllDrives</text>
+
+  <line x1="310" y1="165" x2="360" y2="165" stroke="#2f4f4f" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <line x1="640" y1="165" x2="690" y2="165" stroke="#2f4f4f" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <line x1="920" y1="165" x2="970" y2="165" stroke="#2f4f4f" stroke-width="2.4" marker-end="url(#arrow)"/>
+
+  <rect x="120" y="300" width="1160" height="180" rx="14" fill="#ffffff" stroke="#99b3e8"/>
+  <text x="700" y="342" text-anchor="middle" font-size="22" font-family="Helvetica, Arial, sans-serif" fill="#223a7a" font-weight="700">Operational Outcome</text>
+  <text x="700" y="382" text-anchor="middle" font-size="17" font-family="Helvetica, Arial, sans-serif" fill="#2f2f2f">book import --folder-id 19ye9W4waRCXuF5L59N2leDes7heZpT9w</text>
+  <text x="700" y="412" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#2f2f2f">3 manuscript files downloaded successfully</text>
+  <text x="700" y="442" text-anchor="middle" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#4f4f4f">AI_Health_Playbook_기획서_v07.docx / 샘플원고_v04.docx / 샘플원고_v04_KOR.docx</text>
+</svg>
