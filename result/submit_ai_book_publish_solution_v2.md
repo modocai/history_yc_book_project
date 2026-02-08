@@ -23,14 +23,14 @@
 
 ### Phase 2 — Architecture Pivot to Git-native Publish/Pull
 
-![Phase 2 Architecture Pivot](assets/phase2_architecture_pivot.svg)
+![Phase 2 Architecture Pivot](https://raw.githubusercontent.com/modocai/history_yc_book_project/main/result/assets/phase2_architecture_pivot.svg)
 
 - The initial sync-heavy approach was replaced with a simpler publish/pull model.
 - The critical decision was to treat Docs as publish/review artifacts, not as a second editable source of truth. [4](https://github.com/modocai/history_yc_book_project/blob/main/result/2026-02-05-bookbook-gitnative-copilot-en.txt#L94)[5](https://github.com/modocai/history_yc_book_project/blob/main/result/2026-02-05-bookbook-gitnative-copilot-en.txt#L109)
 
 ### Phase 3 — Core Implementation (Auth, Drive, Import)
 
-![Phase 3 Auth and Drive Import Pipeline](assets/phase3_import_pipeline.svg)
+![Phase 3 Auth and Drive Import Pipeline](https://raw.githubusercontent.com/modocai/history_yc_book_project/main/result/assets/phase3_import_pipeline.svg)
 
 - OAuth scope was expanded from `drive.file` to `drive` to access user-uploaded files. [7](https://github.com/modocai/history_yc_book_project/blob/main/result/2026-02-05-bookbook-gitnative-copilot-en.txt#L547)
 - Drive client support was extended for export/download flows and richer listing metadata (`mimeType`). [8](https://github.com/modocai/history_yc_book_project/blob/main/result/2026-02-05-bookbook-gitnative-copilot-en.txt#L643)
@@ -52,7 +52,7 @@
 
 ### Phase 6 — Style Fidelity Loop for Publish Quality
 
-![Phase 6 Style Fidelity Iteration Loop](assets/phase6_style_fidelity_loop.svg)
+![Phase 6 Style Fidelity Iteration Loop](https://raw.githubusercontent.com/modocai/history_yc_book_project/main/result/assets/phase6_style_fidelity_loop.svg)
 
 - A dedicated style-matching cycle was defined against a template diff matrix (thematic break, body spacing/color, blockquote, code block rendering). [19](https://github.com/modocai/history_yc_book_project/blob/main/2026-02-06-styletemplate-test.txt#L7)[20](https://github.com/modocai/history_yc_book_project/blob/main/2026-02-06-styletemplate-test.txt#L249)
 - Iterative updates increased coverage and produced stable pass states (160+ -> 163 tests) with manual publish verification. [21](https://github.com/modocai/history_yc_book_project/blob/main/2026-02-06-styletemplate-test.txt#L718)[24](https://github.com/modocai/history_yc_book_project/blob/main/2026-02-06-styletemplate-test.txt#L1835)
